@@ -55,7 +55,7 @@ function add(parent, geo, mat, x=0,y=0,z=0, rx=0,ry=0,rz=0) {
   m.position.set(x,y,z); m.rotation.set(rx,ry,rz);
   m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
 }
-function seeded(n) { return (Math.sin(n*999.41)*43758.5453)%1; }
+function seeded(n) { return ((Math.sin(n*999.41)*43758.5453)%1+1)%1; }
 function dist2D(a,b){ const dx=a.x-b.x, dz=a.z-b.z; return Math.hypot(dx,dz); }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
@@ -209,6 +209,29 @@ function createMarineModel(type,boss=false){
   return g;
 }
 
+function createPlayerModel(){
+  const g=new THREE.Group();
+  add(g,new THREE.CylinderGeometry(.38,.46,.72,9),toon(0x263745),-.4,.38,0);
+  add(g,new THREE.CylinderGeometry(.38,.46,.72,9),toon(0x263745),.4,.38,0);
+  add(g,new THREE.CylinderGeometry(.31,.35,1.25,9),toon(0x2f788b),-.36,1.28,0);
+  add(g,new THREE.CylinderGeometry(.31,.35,1.25,9),toon(0x2f788b),.36,1.28,0);
+  add(g,new THREE.CylinderGeometry(.82,.68,1.65,10),toon(C.orange),0,2.6,0);
+  add(g,new THREE.BoxGeometry(1.5,.16,.18),toon(C.gold),0,2.15,.72);
+  add(g,new THREE.SphereGeometry(.62,14,10),toon(C.skin),0,3.92,0);
+  add(g,new THREE.SphereGeometry(.67,12,7,0,Math.PI*2,0,Math.PI*.52),toon(0x29212a),0,4.16,0);
+  for(let i=0;i<7;i++)add(g,new THREE.ConeGeometry(.13,.5,7),toon(0x29212a),-.48+i*.16,4.36,.08,0,0,(i-3)*.13);
+  add(g,new THREE.TorusGeometry(.72,.12,8,24),toon(C.gold),0,4.48,0,Math.PI/2);
+  add(g,new THREE.CylinderGeometry(.54,.58,.22,16),toon(C.orange),0,4.58,0);
+  add(g,new THREE.BoxGeometry(.14,.08,.07),toon(C.ink),-.22,3.99,.57);
+  add(g,new THREE.BoxGeometry(.14,.08,.07),toon(C.ink),.22,3.99,.57);
+  add(g,new THREE.CylinderGeometry(.22,.28,1.55,9),toon(C.skin),-.88,2.68,0,0,0,-.15);
+  add(g,new THREE.CylinderGeometry(.22,.28,1.55,9),toon(C.skin),.88,2.68,0,0,0,.15);
+  add(g,new THREE.TorusGeometry(.23,.07,7,12),toon(C.ink),-.98,1.96,0,Math.PI/2);
+  add(g,new THREE.TorusGeometry(.23,.07,7,12),toon(C.ink),.98,1.96,0,Math.PI/2);
+  const scarf=add(g,new THREE.PlaneGeometry(1.1,.9),toon(C.red),-.72,3.2,-.46,0,.25,.22);scarf.material.side=THREE.DoubleSide;
+  return g;
+}
+
 function createAllyModel(){
   const g=new THREE.Group();
   add(g,new THREE.CylinderGeometry(.55,.7,1.1,9),toon(0x173747),-.48,.55,0);
@@ -281,11 +304,14 @@ function buildArms(){
   arms.userData.left=left; arms.userData.right=right;
 }
 buildArms();
+buildWorld();
+state.playerModel=createPlayerModel();
+scene.add(state.playerModel);
 
 function resetGame(){
   clearActors();
   Object.assign(state,{active:false,paused:false,phase:"assault",time:0,capture:0,defense:30,
-    waveClock:0,kills:0,combo:0,comboTimer:0,score:0,yaw:0,pitch:-.04,shake:0,gateOpen:0});
+    waveClock:0,kills:0,combo:0,maxCombo:0,comboTimer:0,score:0,yaw:0,pitch:-.04,shake:0,gateOpen:0});
   Object.assign(state.player,{hp:300,maxHp:300,stamina:100,haki:30,speed:9.2,dodge:0,invuln:0,buff:0,attackAnim:0,hurtAnim:0});
   state.player.pos.set(0,1.7,40);
   Object.keys(state.player.cooldowns).forEach(k=>state.player.cooldowns[k]=0);
@@ -346,6 +372,9 @@ function updatePlayer(dt){
   p.pos.x=clamp(p.pos.x,-39,39); p.pos.z=clamp(p.pos.z,-62,55);
   if(state.phase!=="exit"&&p.pos.z<-59)p.pos.z=-59;
 
+  state.playerModel.position.set(p.pos.x,0,p.pos.z);
+  state.playerModel.rotation.y=state.yaw+Math.PI;
+  state.playerModel.visible=state.mode!=="first";
   if(state.mode==="first"){
     camera.position.copy(p.pos);
     camera.position.y=1.74;
@@ -411,6 +440,7 @@ function useHaki(){
   p.cooldowns.haki=25;p.haki-=50;state.shake=.38;p.invuln=.8;
   pulse(p.pos,C.purple,11);
   state.enemies.forEach(e=>{if(!e.dead&&dist2D(e.pos,p.pos)<12){e.stun=e.type==="boss"?1.2:3;damageEnemy(e,e.type==="boss"?55:85,true);}});
+  for(let i=state.hazards.length-1;i>=0;i--){const h=state.hazards[i];if(h.type==="line"&&h.time>0){scene.remove(h.mesh);state.hazards.splice(i,1);}}
   toast("震慑领域！",1200);audio.tone(62,.7,"sawtooth",.075);
 }
 function hitCone(damage,range,minDot){
@@ -495,9 +525,11 @@ function updateBoss(e,dt){
 }
 function enemyShot(e,target){
   const pos=e.pos.clone().add(new THREE.Vector3(0,2.8,0));
-  const dir=target.clone().add(new THREE.Vector3(0,1,0)).sub(pos).normalize();
+  const targetAlly=!!(state.ally&&target===state.ally.pos);
+  const aim=target.clone();aim.y=targetAlly?2.1:1.7;
+  const dir=aim.sub(pos).normalize();
   const m=new THREE.Mesh(new THREE.SphereGeometry(.12,7,6),toon(C.gold,C.gold));m.position.copy(pos);scene.add(m);
-  state.projectiles.push({mesh:m,pos:m.position,vel:dir.multiplyScalar(13),life:2,owner:"enemy",damage:e.damage});
+  state.projectiles.push({mesh:m,pos:m.position,vel:dir.multiplyScalar(13),life:2,owner:"enemy",damage:e.damage,targetAlly});
   audio.tone(115,.06,"square",.018);
 }
 function hurtAlly(amount){
@@ -522,7 +554,8 @@ function updateProjectiles(dt){
         if(p.rocket){state.enemies.forEach(o=>{if(!o.dead&&dist2D(o.pos,p.pos)<p.radius)damageEnemy(o,p.damage*(1-dist2D(o.pos,p.pos)/(p.radius*1.8)),true);});burst(p.pos,C.orange,16);state.shake=.28;}
         else damageEnemy(e,p.damage,false);remove=true;break;
       }}
-    }else if(p.pos.distanceTo(state.player.pos)<1.0){hurtPlayer(p.damage);remove=true;}
+    }else if(p.targetAlly&&state.ally&&p.pos.distanceTo(state.ally.pos.clone().add(new THREE.Vector3(0,1.4,0)))<1.35){hurtAlly(p.damage);remove=true;}
+    else if(!p.targetAlly&&p.pos.distanceTo(state.player.pos)<1.35){hurtPlayer(p.damage);remove=true;}
     if(remove){scene.remove(p.mesh);state.projectiles.splice(i,1);}
   }
 }
