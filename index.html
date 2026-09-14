@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#102c40">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>伟大航路：本部决战 · 第一人称3D</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <div id="orientation"><div>↻</div><b>请旋转手机横屏游玩</b></div>
+
+  <section id="startScreen" class="panel-screen">
+    <div class="title-card">
+      <div class="eyebrow">原创漫画风 · 第一人称 3D 动作游戏</div>
+      <h1>伟大航路<br><span>本部决战</span></h1>
+      <p>突破海军防线，占领冰原据点，击败本部首领并护送盟友撤离。</p>
+      <button id="startBtn" class="primary">开始决战</button>
+      <div class="start-features">
+        <span>◉ 左摇杆移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
+      </div>
+      <small>安卓手机建议横屏 · 首次进入需联网载入 3D 引擎</small>
+    </div>
+  </section>
+
+  <main id="hud" class="hidden">
+    <header class="topbar">
+      <div class="player-card">
+        <div class="portrait">航</div>
+        <div class="bars">
+          <div class="bar hp"><i id="hpFill"></i><b id="hpText">300 / 300</b></div>
+          <div class="mini-row">
+            <div class="bar stamina"><i id="staminaFill"></i></div>
+            <div class="bar haki"><i id="hakiFill"></i></div>
+          </div>
+        </div>
+      </div>
+      <div class="mission">
+        <small>当前任务</small>
+        <strong id="objectiveText">突破防线 · 占领金色据点</strong>
+      </div>
+      <div class="utility">
+        <button id="viewBtn">第一视角</button>
+        <button id="pauseBtn">暂停</button>
+      </div>
+    </header>
+
+    <div id="bossWrap" class="boss hidden">
+      <b>本部大将 · 钢拳统帅</b>
+      <div class="bar"><i id="bossFill"></i><span id="bossText">720 / 720</span></div>
+    </div>
+
+    <div id="captureWrap" class="capture">
+      <span>据点占领</span>
+      <div class="bar"><i id="captureFill"></i></div>
+      <b id="captureText">0.0 / 8 秒</b>
+    </div>
+
+    <canvas id="radar" width="136" height="136"></canvas>
+    <div id="combo"></div>
+    <div id="kills">击败 0</div>
+    <div class="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
+    <div id="toast"></div>
+    <div id="damageLayer"></div>
+    <div id="redFlash"></div>
+
+    <div id="lookZone"><span>在此滑动转向</span></div>
+    <div id="joystick"><div class="joy-ring"></div><div id="stick"><i></i></div></div>
+
+    <div class="actions">
+      <button class="skill haki-btn" data-action="haki" data-cd="haki"><span class="cd"></span><b>霸气</b><small>震慑</small></button>
+      <button class="skill" data-action="s3" data-cd="s3"><span class="cd"></span><b>爆发</b><small>强化</small></button>
+      <button class="skill" data-action="s2" data-cd="s2"><span class="cd"></span><b>飞拳</b><small>范围</small></button>
+      <button class="skill" data-action="s1" data-cd="s1"><span class="cd"></span><b>连打</b><small>多段</small></button>
+      <button class="dodge" data-action="dodge" data-cd="dodge"><span class="cd"></span><b>闪避</b></button>
+      <button class="attack" data-action="attack" data-cd="attack"><span class="cd"></span><b>攻击</b><i>拳</i></button>
+    </div>
+  </main>
+
+  <section id="resultScreen" class="panel-screen hidden">
+    <div class="result-card">
+      <div class="eyebrow">战役结算</div>
+      <h2 id="resultTitle">决战胜利</h2>
+      <div id="resultStats"></div>
+      <button id="restartBtn" class="primary">再次挑战</button>
+    </div>
+  </section>
+
+  <script type="module" src="./game.js"></script>
+</body>
+</html>
