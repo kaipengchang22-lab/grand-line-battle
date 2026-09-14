@@ -21,7 +21,7 @@
       <p>突破海军防线，占领冰原据点，击败本部首领并护送盟友撤离。</p>
       <button id="startBtn" class="primary">开始决战</button>
       <div class="start-features">
-        <span>◉ 左摇杆前后移动 / 左右转向</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
+        <span>◉ 左摇杆只负责移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
       </div>
       <small>安卓手机建议横屏 · 首次进入需联网载入 3D 引擎</small>
     </div>
@@ -91,7 +91,7 @@
   </section>
 
   <script>
-    // V4 停用旧离线缓存，避免手机继续加载过期游戏逻辑。
+    // V5 停用旧离线缓存，避免手机继续加载过期游戏逻辑。
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then(registrations => {
         registrations.forEach(registration => registration.unregister());
@@ -101,6 +101,6 @@
       caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
     }
   </script>
-  <script type="module" src="./game.js?v=4"></script>
+  <script type="module" src="./game.js?v=5"></script>
 </body>
 </html>
