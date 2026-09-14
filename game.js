@@ -103,7 +103,7 @@ const state = {
   active:false, paused:false, mode:"first", phase:"assault", time:0, capture:0, defense:30,
   waveClock:0, kills:0, combo:0, comboTimer:0, score:0, yaw:0, pitch:-.04,
   player:{pos:new THREE.Vector3(0,1.7,40), hp:300,maxHp:300, stamina:100,haki:30,
-    speed:9.2, cooldowns:{attack:0,dodge:0,s1:0,s2:0,s3:0,haki:0}, dodge:0, invuln:0,
+    speed:9.2, cooldowns:{attack:0,dodge:0,s1:0,s2:0,s3:0,s4:0,s5:0,ultimate:0,haki:0}, dodge:0, invuln:0,
     buff:0, attackAnim:0, hurtAnim:0},
   enemies:[], projectiles:[], hazards:[], effects:[], ally:null, boss:null,
   keys:{}, joy:{x:0,y:0}, shake:0, gateOpen:0, nextId:1
@@ -348,20 +348,20 @@ const STATS={
 };
 function spawnEnemy(type="sword",x=0,z=0){
   const s=STATS[type], model=createMarineModel(type,false);
-  model.position.set(x,0,z); scene.add(model);
+  rigActor(model);model.position.set(x,0,z);model.userData.rig.last.copy(model.position); scene.add(model);
   const e={id:state.nextId++,type,model,pos:model.position,hp:s.hp,maxHp:s.hp,speed:s.speed,
     damage:s.damage,range:s.range,attackCd:.5+Math.random(),stun:0,dead:false,bar:addHealthBar(model,2.15,type==="captain"?6.3:5.3)};
   state.enemies.push(e); return e;
 }
 function spawnBoss(){
-  const model=createMarineModel("captain",true); model.position.set(0,0,-48); scene.add(model);
+  const model=createMarineModel("captain",true);rigActor(model); model.position.set(0,0,-48); scene.add(model);
   const e={id:state.nextId++,type:"boss",model,pos:model.position,hp:720,maxHp:720,speed:2.7,damage:30,
     range:3.3,attackCd:2,stun:0,dead:false,phase2:false,ultimate:false,bar:addHealthBar(model,3.2,7.65)};
   state.enemies.push(e); state.boss=e; ui.bossWrap.classList.remove("hidden");
   toast("海军本部大将登场！",2200); audio.tone(72,.55,"sawtooth",.07);
 }
 function spawnAlly(){
-  const model=createAllyModel(); model.position.set(0,0,-24); scene.add(model);
+  const model=createAllyModel();rigActor(model); model.position.set(0,0,-24); scene.add(model);
   state.ally={model,pos:model.position,hp:260,maxHp:260,attackCd:0};
   addHealthBar(model,3,6.4);
 }
@@ -388,18 +388,128 @@ function buildArms(){
     add(a,new THREE.CylinderGeometry(.2,.2,.18,9),toon(C.red),0,-.02,-.28,Math.PI/2);
     for(let n=0;n<3;n++)add(a,new THREE.BoxGeometry(.055,.055,.18),toon(0xffd1ad),-.09+n*.09,.11,-.54);
   });
+  const kick=new THREE.Group();kick.visible=false;arms.add(kick);
+  add(kick,new THREE.CylinderGeometry(.16,.21,1.4,10),toon(C.skin),0,0,0,Math.PI/2);
+  add(kick,new THREE.BoxGeometry(.45,.24,.62),toon(C.brown),0,0,-.8);
+  arms.userData.kick=kick;
   arms.userData.left=left; arms.userData.right=right;
 }
 buildArms();
 buildWorld();
-state.playerModel=createPlayerModel();
+state.playerModel=createPlayerModel();rigActor(state.playerModel);
 scene.add(state.playerModel);
 
+
+function rigActor(root){
+  const parts=root.children.filter(o=>o.isMesh);
+  const rig={legs:[],arms:[],weapons:[],phase:0,last:root.position.clone()};
+  for(const side of [-1,1]){
+    const hip=new THREE.Group();hip.position.set(side*.38,1.95,0);root.add(hip);
+    const shoulder=new THREE.Group();shoulder.position.set(side*.95,3.45,0);root.add(shoulder);
+    for(const m of parts){
+      if(Math.sign(m.position.x)!==side)continue;
+      const leg=m.position.y<1.95&&Math.abs(m.position.x)<.8;
+      const arm=Math.abs(m.position.x)>.8&&m.position.y>=1.95&&m.position.y<3.55;
+      if(leg||arm){const pivot=leg?hip:shoulder;m.position.sub(pivot.position);pivot.add(m);}
+    }
+    rig.legs.push(hip);rig.arms.push(shoulder);
+  }
+  root.userData.rig=rig;
+}
+function poseActor(root,dt,moving,attack=0,hurt=0){
+  const rig=root.userData.rig;if(!rig)return;
+  rig.phase+=dt*(moving?10:2);
+  const stride=moving?Math.sin(rig.phase)*.48:0;
+  rig.legs.forEach((p,i)=>p.rotation.x=(i?1:-1)*stride);
+  rig.arms.forEach((p,i)=>{
+    p.rotation.x=(i?-1:1)*stride*.65-Math.sin(Math.PI*attack)*1.8;
+    p.rotation.z=(i?1:-1)*hurt*.2;
+  });
+  root.rotation.x=-Math.sin(hurt*Math.PI)*.2;
+}
+function animateActors(dt){
+  for(const a of [...state.enemies,...(state.ally?[state.ally]:[])]){
+    const rig=a.model.userData.rig;if(!rig)continue;
+    const moving=a.pos.distanceToSquared(rig.last)>.00001;
+    rig.last.copy(a.pos);
+    a.model.userData.swing=Math.max(0,(a.model.userData.swing||0)-dt*2.8);
+    a.model.userData.hurt=Math.max(0,(a.model.userData.hurt||0)-dt*3.5);
+    poseActor(a.model,dt,moving,a.model.userData.swing,a.model.userData.hurt);
+  }
+}
+function scheduleCombat(delay,run){state.combatActions.push({delay,run});}
+function updateCombat(dt){
+  const pending=state.combatActions;state.combatActions=[];
+  for(const event of pending){
+    event.delay-=dt;
+    if(event.delay<=0){event.run();if(!state.active)break;}
+    else state.combatActions.push(event);
+  }
+  const p=state.player;
+  if(p.rocket){
+    const dash=p.rocket;
+    for(const e of [...state.enemies]){
+      if(e.dead||dash.hits.has(e.id))continue;
+      const segment=p.pos.clone().sub(dash.last);segment.y=0;
+      const rel=e.pos.clone().sub(dash.last);rel.y=0;
+      const t=clamp(rel.dot(segment)/Math.max(.0001,segment.lengthSq()),0,1);
+      if(rel.addScaledVector(segment,-t).length()<2.8){
+        dash.hits.add(e.id);damageEnemy(e,65,true);e.stun=Math.max(e.stun,e.type==="boss"?.25:.8);
+      }
+    }
+    dash.last.copy(p.pos);dash.time-=dt;
+    if(dash.time<=0)p.rocket=null;
+  }
+}
+function canCast(key,cost=0){
+  const p=state.player;
+  if(!state.active||state.paused||p.castTime>0||p.cooldowns[key]>0)return false;
+  if(p.stamina<cost){toast("体力不足",650);return false;}
+  return true;
+}
+function areaStrike(point,radius,damage){
+  pulse(point,C.gold,radius);burst(point,C.orange,12);
+  for(const e of [...state.enemies]){
+    if(!e.dead&&dist2D(e.pos,point)<radius){
+      damageEnemy(e,damage,true);e.stun=Math.max(e.stun,e.type==="boss"?.4:1.2);
+    }
+  }
+  state.shake=.22;
+}
+function skill4(){
+  if(!canCast("s4",25))return;
+  const p=state.player;p.stamina-=25;p.cooldowns.s4=12;p.castTime=.55;p.castKind="axe";
+  const point=p.pos.clone().addScaledVector(playerDirection(),5);point.y=0;
+  pulse(point,C.orange,4.5);
+  scheduleCombat(.4,()=>areaStrike(point,4.5,90));
+  toast("橡胶·战斧！",850);
+}
+function skill5(){
+  if(!canCast("s5",30))return;
+  const p=state.player;p.stamina-=30;p.cooldowns.s5=14;
+  p.dodge=.42;p.dodgeDir=playerDirection();p.invuln=.5;
+  p.rocket={time:.46,last:p.pos.clone(),hits:new Set()};p.castTime=.42;p.castKind="rocket";
+  pulse(p.pos,C.orange,3);toast("橡胶·火箭！",850);
+}
+function ultimate(){
+  if(!canCast("ultimate"))return;
+  const p=state.player;
+  if(p.charge<100){toast("命中敌人积攒大招 · "+Math.floor(p.charge)+"%",900);return;}
+  p.charge=0;p.cooldowns.ultimate=40;p.castTime=1.05;p.castKind="giant";p.invuln=1.1;
+  const point=p.pos.clone().addScaledVector(playerDirection(),7);point.y=0;
+  const fist=new THREE.Mesh(new THREE.SphereGeometry(1.65,12,8),toon(C.skin));
+  fist.position.copy(point);fist.position.y=7;scene.add(fist);
+  state.effects.push({mesh:fist,time:1.05,total:1.05,giant:true});
+  pulse(point,C.gold,7);
+  scheduleCombat(.75,()=>{areaStrike(point,7,230);audio.tone(65,.3,"sawtooth",.05);});
+  toast("三档 · 巨人之拳！",1300);
+}
+
 function resetGame(){
-  clearActors();
+  clearActors();state.combatActions=[];
   Object.assign(state,{active:false,paused:false,phase:"assault",time:0,capture:0,defense:30,
     waveClock:0,kills:0,combo:0,maxCombo:0,comboTimer:0,score:0,yaw:0,pitch:-.04,shake:0,gateOpen:0});
-  Object.assign(state.player,{hp:300,maxHp:300,stamina:100,haki:30,speed:9.2,dodge:0,invuln:0,buff:0,attackAnim:0,hurtAnim:0});
+  Object.assign(state.player,{charge:0,castTime:0,castKind:null,rocket:null,hp:300,maxHp:300,stamina:100,haki:30,speed:9.2,dodge:0,invuln:0,buff:0,attackAnim:0,hurtAnim:0});
   state.player.pos.set(0,1.7,40);
   Object.keys(state.player.cooldowns).forEach(k=>state.player.cooldowns[k]=0);
   state.gate.children[0].position.x=-3.2; state.gate.children[1].position.x=3.2;
@@ -457,6 +567,7 @@ function aimDirection(){
 }
 function updatePlayer(dt){
   const p=state.player;
+  p.castTime=Math.max(0,p.castTime-dt);
   Object.keys(p.cooldowns).forEach(k=>p.cooldowns[k]=Math.max(0,p.cooldowns[k]-dt));
   p.invuln=Math.max(0,p.invuln-dt); p.buff=Math.max(0,p.buff-dt);
   p.attackAnim=Math.max(0,p.attackAnim-dt*5.5); p.hurtAnim=Math.max(0,p.hurtAnim-dt*5);
@@ -478,6 +589,7 @@ function updatePlayer(dt){
 
   state.playerModel.position.set(p.pos.x,0,p.pos.z);
   state.playerModel.rotation.y=state.yaw+Math.PI;
+  poseActor(state.playerModel,dt,moving,p.attackAnim,p.hurtAnim);
   state.playerModel.visible=state.mode!=="first";
   if(state.mode==="first"){
     camera.position.copy(p.pos);
@@ -504,10 +616,23 @@ function updatePlayer(dt){
   arms.userData.right.position.z=thrust;
   arms.userData.right.rotation.x=p.attackAnim>0?-Math.sin(punch)*.22:0;
   arms.userData.left.position.z=p.buff>0?Math.sin(state.time*8)*-.08:0;
+  arms.rotation.z=Math.sin(p.hurtAnim*Math.PI)*.08;
+  arms.position.z=-.92+p.hurtAnim*.15;
+  arms.userData.right.scale.setScalar(1);arms.userData.kick.visible=false;
+  if(p.castTime>0){
+    if(p.castKind==="giant"){arms.userData.right.scale.setScalar(1.9);arms.userData.right.position.z=-.4;}
+    else if(p.castKind==="rocket"){arms.userData.left.position.z=-.65;arms.userData.right.position.z=-.65;}
+    else if(p.castKind==="axe"){
+      const q=1-p.castTime/.55;
+      arms.userData.kick.visible=true;arms.userData.kick.position.set(.15,1.2-q*1.7,-.7);
+      arms.userData.kick.rotation.x=-1.2+q*2;
+      const leg=state.playerModel.userData.rig.legs[1];leg.rotation.x=-2.7+q*3.2;
+    }
+  }
 }
 
 function beginDodge(){
-  const p=state.player;if(!state.active||p.cooldowns.dodge>0||p.stamina<28)return;
+  const p=state.player;if(!canCast("dodge",28))return;
   p.stamina-=28;p.cooldowns.dodge=1.1;p.dodge=.24;p.invuln=.34;
   let ix=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0)+state.joy.x;
   let iz=(state.keys.KeyW?1:0)-(state.keys.KeyS?1:0)-state.joy.y;
@@ -516,19 +641,19 @@ function beginDodge(){
   audio.tone(130,.1,"sine",.04);
 }
 function attack(){
-  const p=state.player;if(!state.active||state.paused||p.cooldowns.attack>0)return;
+  const p=state.player;if(!canCast('attack'))return;
   p.cooldowns.attack=p.buff>0?.18:.34;p.attackAnim=1;
   const damage=p.buff>0?31:23; hitCone(damage,4.4,.72);
   audio.tone(170,.07,"square",.035);
 }
 function skill1(){
-  const p=state.player;if(!state.active||p.cooldowns.s1>0)return;
+  const p=state.player;if(!canCast("s1"))return;
   p.cooldowns.s1=p.buff>0?5.5:8;p.attackAnim=1; state.shake=.14;
-  for(let i=0;i<5;i++)setTimeout(()=>{if(state.active){hitCone(15,6.3,.58);audio.tone(210+i*30,.045,"square",.025);}},i*75);
+  for(let i=0;i<5;i++)scheduleCombat(i*.075,()=>{p.attackAnim=1;hitCone(15,6.3,.58);audio.tone(210+i*30,.045,"square",.025);});
   toast("连环拳风！",800);
 }
 function skill2(){
-  const p=state.player;if(!state.active||p.cooldowns.s2>0)return;
+  const p=state.player;if(!canCast("s2"))return;
   p.cooldowns.s2=10;p.attackAnim=1;
   const dir=aimDirection(), pos=p.pos.clone().add(new THREE.Vector3(0,-.05,0)).addScaledVector(dir,1.2);
   const m=new THREE.Mesh(new THREE.SphereGeometry(.3,10,8),toon(C.orange,C.orange));
@@ -537,12 +662,12 @@ function skill2(){
   audio.tone(280,.14,"sawtooth",.045);toast("冲击飞拳！",800);
 }
 function skill3(){
-  const p=state.player;if(!state.active||p.cooldowns.s3>0)return;
+  const p=state.player;if(!canCast("s3"))return;
   p.cooldowns.s3=22;p.buff=9;p.hp=clamp(p.hp+35,0,p.maxHp);state.shake=.18;
   pulse(p.pos,C.red,5);toast("热血爆发：速度与攻击强化！",1400);audio.tone(95,.45,"sawtooth",.05);
 }
 function useHaki(){
-  const p=state.player;if(!state.active||p.cooldowns.haki>0||p.haki<50)return;
+  const p=state.player;if(!canCast("haki")||p.haki<50)return;
   p.cooldowns.haki=25;p.haki-=50;state.shake=.38;p.invuln=.8;
   pulse(p.pos,C.purple,11);
   state.enemies.forEach(e=>{if(!e.dead&&dist2D(e.pos,p.pos)<12){e.stun=e.type==="boss"?1.2:3;damageEnemy(e,e.type==="boss"?55:85,true);}});
@@ -560,7 +685,7 @@ function hitCone(damage,range,minDot){
 function damageEnemy(e,amount,heavy){
   if(e.dead)return;
   if(e.type==="shield"&&!heavy)amount*=.68;
-  e.hp-=amount;e.model.userData.flash=.12;state.player.haki=clamp(state.player.haki+amount*.08,0,100);
+  e.hp-=amount;e.model.userData.hurt=1;state.player.charge=clamp(state.player.charge+amount*.12,0,100);state.player.haki=clamp(state.player.haki+amount*.08,0,100);
   state.score+=Math.round(amount*(1+state.combo*.025));damageNumber(e.pos,Math.round(amount),heavy);
   if(e.hp<=0)killEnemy(e);
 }
@@ -585,9 +710,6 @@ function updateEnemies(dt){
   const p=state.player;
   state.enemies.forEach(e=>{
     if(e.dead)return;
-    if(e.model.userData.flash>0){
-      e.model.userData.flash-=dt;e.model.traverse(o=>{if(o.isMesh&&o.material.emissive)o.material.emissive.setHex(0xffffff);});
-    }else e.model.traverse(o=>{if(o.isMesh&&o.material.emissive)o.material.emissive.setHex(o.material.userData.baseEmissive||0x000000);});
     e.attackCd-=dt;e.stun=Math.max(0,e.stun-dt);
     e.bar.lookAt(camera.position);const ratio=clamp(e.hp/e.maxHp,0,1);
     e.bar.userData.fill.scale.x=ratio;e.bar.userData.fill.position.x=-(1-ratio)*e.bar.userData.width/2;
@@ -597,12 +719,12 @@ function updateEnemies(dt){
     const target=(state.phase==="defense"&&state.ally&&dist2D(e.pos,state.ally.pos)<dist2D(e.pos,p.pos)+4)?state.ally.pos:p.pos;
     const to=target.clone().sub(e.pos);to.y=0;const d=to.length();if(d>.01)e.model.rotation.y=Math.atan2(to.x,to.z);
     if(e.type==="gun"&&d<18&&d>5){
-      if(e.attackCd<=0){e.attackCd=2.0+Math.random()*.5;enemyShot(e,target);}
+      if(e.attackCd<=0){e.model.userData.swing=1;e.attackCd=2.0+Math.random()*.5;enemyShot(e,target);}
     }else if(d>e.range){
       const crowd=state.enemies.filter(o=>o!==e&&!o.dead&&dist2D(o.pos,e.pos)<1.2).length;
       e.pos.addScaledVector(to.normalize(),e.speed*dt*(crowd?.55:1));
     }else if(e.attackCd<=0){
-      e.attackCd=e.type==="captain"?1.25:1.55;
+      e.model.userData.swing=1;e.attackCd=e.type==="captain"?1.25:1.55;
       if(state.ally&&target===state.ally.pos)hurtAlly(e.damage);else hurtPlayer(e.damage);
     }
   });
@@ -622,7 +744,7 @@ function updateBoss(e,dt){
   }
   if(d>e.range+1.2)e.pos.addScaledVector(to.normalize(),e.speed*dt);
   if(e.attackCd<=0){
-    e.attackCd=e.phase2?1.85:2.6;
+    e.model.userData.swing=1;e.attackCd=e.phase2?1.85:2.6;
     const r=Math.random();
     if(r<.42)spawnCircleHazard(p.pos.clone(),2.8,e.phase2?28:22,1.0);
     else if(r<.78)spawnCircleHazard(e.pos.clone(),5.2,e.phase2?35:27,.72);
@@ -648,7 +770,7 @@ function updateAlly(dt){
   if(bar){bar.lookAt(camera.position);const r=clamp(a.hp/a.maxHp,0,1);bar.userData.fill.scale.x=r;bar.userData.fill.position.x=-(1-r)*bar.userData.width/2;}
   let nearest=null,nd=12;state.enemies.forEach(e=>{const d=dist2D(e.pos,a.pos);if(!e.dead&&d<nd){nearest=e;nd=d;}});
   if(nearest){a.model.rotation.y=Math.atan2(nearest.pos.x-a.pos.x,nearest.pos.z-a.pos.z);
-    if(a.attackCd<=0){a.attackCd=1.1;damageEnemy(nearest,28,false);pulse(nearest.pos,0x54dce6,1.5);}}
+    if(a.attackCd<=0){a.model.userData.swing=1;a.attackCd=1.1;damageEnemy(nearest,28,false);pulse(nearest.pos,0x54dce6,1.5);}}
 }
 
 function updateProjectiles(dt){
@@ -714,9 +836,10 @@ function burst(pos,color,count){
 function updateEffects(dt){
   for(let i=state.effects.length-1;i>=0;i--){
     const f=state.effects[i];f.time-=dt;
-    if(f.vel){f.mesh.position.addScaledVector(f.vel,dt);f.vel.y-=9*dt;f.mesh.rotation.x+=dt*8;}
+    if(f.giant){f.mesh.position.y=7*(1-clamp((f.total-f.time)/.75,0,1));}
+    else if(f.vel){f.mesh.position.addScaledVector(f.vel,dt);f.vel.y-=9*dt;f.mesh.rotation.x+=dt*8;}
     else{const q=1-f.time/f.total;f.mesh.scale.setScalar(1+q*f.radius);f.mesh.material.opacity=1-q;}
-    if(f.time<=0){scene.remove(f.mesh);state.effects.splice(i,1);}
+    if(f.time<=0){scene.remove(f.mesh);f.mesh.geometry.dispose();if(!f.vel&&!f.giant)f.mesh.material.dispose();state.effects.splice(i,1);}
   }
 }
 
@@ -762,7 +885,8 @@ function updateUI(){
   if(state.boss){ui.bossFill.style.width=(state.boss.hp/state.boss.maxHp*100)+"%";ui.bossText.textContent=Math.max(0,Math.ceil(state.boss.hp))+" / "+state.boss.maxHp;}
   document.querySelectorAll("[data-cd]").forEach(el=>{
     const key=el.dataset.cd,v=p.cooldowns[key];const span=el.querySelector(".cd");
-    if(span)span.textContent=v>0?Math.ceil(v):"";el.classList.toggle("cooling",v>0);
+    if(span)span.textContent=v>0?Math.ceil(v):(key==="ultimate"&&p.charge<100?Math.floor(p.charge)+"%":"");
+    el.classList.toggle("cooling",v>0||(key==="ultimate"&&p.charge<100));
   });
   drawRadar();
 }
@@ -879,7 +1003,7 @@ function bindControls(){
   }
 
   document.querySelectorAll("[data-action]").forEach(b=>b.addEventListener("pointerdown",e=>{
-    e.preventDefault();e.stopPropagation();({attack, dodge:beginDodge,s1:skill1,s2:skill2,s3:skill3,haki:useHaki}[b.dataset.action])();
+    e.preventDefault();e.stopPropagation();({attack, dodge:beginDodge,s1:skill1,s2:skill2,s3:skill3,s4:skill4,s5:skill5,ultimate,haki:useHaki}[b.dataset.action])();
   }));
   ui.startBtn.addEventListener("click",startGame);ui.restartBtn.addEventListener("click",startGame);
   ui.pauseBtn.addEventListener("click",togglePause);
@@ -891,7 +1015,7 @@ bindControls();
 function animate(){
   const dt=Math.min(clock.getDelta(),.035);
   if(state.active&&!state.paused){
-    state.time+=dt;updatePlayer(dt);updateEnemies(dt);updateAlly(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updatePhase(dt);updateUI();
+    state.time+=dt;updatePlayer(dt);updateCombat(dt);updateEnemies(dt);updateAlly(dt);animateActors(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updatePhase(dt);updateUI();
   }else if(!state.active){
     camera.position.lerp(new THREE.Vector3(15,15,35),.04);camera.lookAt(0,2,-12);
     state.captureMesh.rotation.y+=dt*.3;
