@@ -368,8 +368,15 @@ function updatePlayer(dt){
   state.comboTimer-=dt; if(state.comboTimer<=0)state.combo=0;
   p.stamina=clamp(p.stamina+dt*(p.buff>0?23:15),0,100);
 
-  let ix=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0)+state.joy.x;
+  // Mobile FPS steering: vertical stick moves, horizontal stick turns.
+  // This avoids the disorienting "left stick also strafes the camera" feeling on phones.
+  const keyboardX=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0);
+  let ix=keyboardX+(state.mode==="first"?0:state.joy.x);
   let iz=(state.keys.KeyW?1:0)-(state.keys.KeyS?1:0)-state.joy.y;
+  if(state.mode==="first"&&Math.abs(state.joy.x)>.035){
+    const turn=Math.sign(state.joy.x)*Math.pow(Math.abs(state.joy.x),1.25);
+    state.yaw-=turn*dt*2.35;
+  }
   const l=Math.hypot(ix,iz); if(l>1){ix/=l;iz/=l;}
   const f=playerDirection(), r=new THREE.Vector3(Math.cos(state.yaw),0,Math.sin(state.yaw));
   const move=new THREE.Vector3().addScaledVector(f,iz).addScaledVector(r,ix);
@@ -413,7 +420,7 @@ function updatePlayer(dt){
 function beginDodge(){
   const p=state.player;if(!state.active||p.cooldowns.dodge>0||p.stamina<28)return;
   p.stamina-=28;p.cooldowns.dodge=1.1;p.dodge=.24;p.invuln=.34;
-  let ix=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0)+state.joy.x;
+  let ix=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0)+(state.mode==="first"?0:state.joy.x);
   let iz=(state.keys.KeyW?1:0)-(state.keys.KeyS?1:0)-state.joy.y;
   const f=playerDirection(),r=new THREE.Vector3(Math.cos(state.yaw),0,Math.sin(state.yaw));
   p.dodgeDir=new THREE.Vector3().addScaledVector(f,iz||1).addScaledVector(r,ix).normalize();
