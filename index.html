@@ -16,7 +16,7 @@
 
   <section id="startScreen" class="panel-screen">
     <div class="title-card">
-      <div class="eyebrow">原创漫画风 · 第一人称 3D 动作游戏</div>
+      <div class="eyebrow">原创热血海洋漫画风 · 第一人称 3D 动作游戏</div>
       <h1>伟大航路<br><span>本部决战</span></h1>
       <p>突破海军防线，占领冰原据点，击败本部首领并护送盟友撤离。</p>
       <button id="startBtn" class="primary">开始决战</button>
@@ -91,7 +91,7 @@
   </section>
 
   <script>
-    // V7 停用旧离线缓存，避免手机继续加载过期游戏逻辑。
+    // V8 停用旧离线缓存，避免手机继续加载过期游戏逻辑。
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then(registrations => {
         registrations.forEach(registration => registration.unregister());
@@ -101,6 +101,6 @@
       caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
     }
   </script>
-  <script type="module" src="./game.js?v=7"></script>
+  <script type="module" src="./game.js?v=8"></script>
 </body>
 </html>
