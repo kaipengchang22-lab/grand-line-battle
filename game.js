@@ -720,26 +720,43 @@ function bindControls(){
   const resetLook=()=>{lookId=null;};
 
   if(useTouch){
-    ui.joystick.addEventListener("touchstart",e=>{
-      if(joyId!==null)return;const t=e.changedTouches[0];joyId=t.identifier;
-      joyRect=ui.joystick.getBoundingClientRect();updateJoyPoint(t.clientX,t.clientY);e.preventDefault();
-    },{passive:false});
-    ui.joystick.addEventListener("touchmove",e=>{
-      const t=Array.from(e.touches).find(v=>v.identifier===joyId);if(t){updateJoyPoint(t.clientX,t.clientY);e.preventDefault();}
-    },{passive:false});
-    const endJoyTouch=e=>{if(Array.from(e.changedTouches).some(v=>v.identifier===joyId)){resetJoy();e.preventDefault();}};
-    ui.joystick.addEventListener("touchend",endJoyTouch,{passive:false});
-    ui.joystick.addEventListener("touchcancel",endJoyTouch,{passive:false});
-
-    ui.lookZone.addEventListener("touchstart",e=>{
-      if(lookId!==null)return;const t=e.changedTouches[0];lookId=t.identifier;lx=t.clientX;ly=t.clientY;e.preventDefault();
-    },{passive:false});
-    ui.lookZone.addEventListener("touchmove",e=>{
-      const t=Array.from(e.touches).find(v=>v.identifier===lookId);if(t){updateLookPoint(t.clientX,t.clientY);e.preventDefault();}
-    },{passive:false});
-    const endLookTouch=e=>{if(Array.from(e.changedTouches).some(v=>v.identifier===lookId)){resetLook();e.preventDefault();}};
-    ui.lookZone.addEventListener("touchend",endLookTouch,{passive:false});
-    ui.lookZone.addEventListener("touchcancel",endLookTouch,{passive:false});
+    // A single document-level router keeps the two fingers independent on Android.
+    // Left touch = movement; right touch = camera. No element-local touch state is shared.
+    const touchById=(touches,id)=>Array.from(touches).find(t=>t.identifier===id);
+    const isActionTarget=target=>target?.closest?.("[data-action],#viewBtn,#pauseBtn,#startBtn,#restartBtn");
+    const onTouchStart=e=>{
+      let handled=false;
+      for(const t of Array.from(e.changedTouches)){
+        if(isActionTarget(e.target))continue;
+        const inMoveZone=t.clientX<innerWidth*.48&&t.clientY>innerHeight*.30;
+        const inLookZone=t.clientX>=innerWidth*.40&&t.clientY>innerHeight*.12;
+        if(joyId===null&&inMoveZone){
+          joyId=t.identifier;joyRect=ui.joystick.getBoundingClientRect();
+          updateJoyPoint(t.clientX,t.clientY);handled=true;
+        }else if(lookId===null&&inLookZone){
+          lookId=t.identifier;lx=t.clientX;ly=t.clientY;handled=true;
+        }
+      }
+      if(handled)e.preventDefault();
+    };
+    const onTouchMove=e=>{
+      let handled=false;
+      const joyTouch=joyId===null?null:touchById(e.touches,joyId);
+      const lookTouch=lookId===null?null:touchById(e.touches,lookId);
+      if(joyTouch){updateJoyPoint(joyTouch.clientX,joyTouch.clientY);handled=true;}
+      if(lookTouch){updateLookPoint(lookTouch.clientX,lookTouch.clientY);handled=true;}
+      if(handled)e.preventDefault();
+    };
+    const onTouchEnd=e=>{
+      let handled=false;
+      if(joyId!==null&&touchById(e.changedTouches,joyId)){resetJoy();handled=true;}
+      if(lookId!==null&&touchById(e.changedTouches,lookId)){resetLook();handled=true;}
+      if(handled)e.preventDefault();
+    };
+    document.addEventListener("touchstart",onTouchStart,{passive:false});
+    document.addEventListener("touchmove",onTouchMove,{passive:false});
+    document.addEventListener("touchend",onTouchEnd,{passive:false});
+    document.addEventListener("touchcancel",onTouchEnd,{passive:false});
   }else{
     ui.joystick.addEventListener("pointerdown",e=>{
       joyId=e.pointerId;joyRect=ui.joystick.getBoundingClientRect();ui.joystick.setPointerCapture(e.pointerId);
