@@ -87,3 +87,11 @@ h1 span{color:var(--orange)}
   .actions{transform:scale(.9);transform-origin:right bottom}.boss{top:62px}.capture{top:65px}
 }
 @media (pointer:fine){#joystick,.actions,#lookZone span{opacity:.72}}
+
+/* Nine combat controls, compact three-column layout on landscape phones. */
+.actions{width:198px;height:186px;display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,58px);gap:6px}
+.actions button,.actions button:nth-of-type(n){position:relative;inset:auto;width:60px;height:58px;box-sizing:border-box}
+.actions .attack b{font-size:13px}
+.actions .ultimate-btn{background:linear-gradient(145deg,#f9bd40,#9b441f)!important;border-color:#ffe5a0!important}
+.actions .ultimate-btn:not(.cooling){box-shadow:0 0 14px #ffc74d88}
+.actions small{font-size:8px}
