@@ -90,6 +90,17 @@
     </div>
   </section>
 
-  <script type="module" src="./game.js?v=2"></script>
+  <script>
+    // V3 停用旧离线缓存，避免手机继续加载过期游戏逻辑。
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        registrations.forEach(registration => registration.unregister());
+      });
+    }
+    if ("caches" in window) {
+      caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
+    }
+  </script>
+  <script type="module" src="./game.js?v=3"></script>
 </body>
 </html>
