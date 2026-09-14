@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>伟大航路：本部决战 · 第一人称3D</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=9">
 </head>
 <body>
   <canvas id="gameCanvas"></canvas>
@@ -23,7 +23,7 @@
       <div class="start-features">
         <span>◉ 左摇杆只负责移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
       </div>
-      <small>安卓手机建议横屏 · 首次进入需联网载入 3D 引擎</small>
+      <small>V9 动作与橡胶招式 · 命中蓄满大招 · 战斧/火箭消耗体力</small>
     </div>
   </section>
 
@@ -72,6 +72,9 @@
     <div id="joystick"><div class="joy-ring"></div><div id="stick"><i></i></div></div>
 
     <div class="actions">
+      <button class="skill" data-action="s4" data-cd="s4" aria-label="橡胶战斧，25体力，12秒冷却"><span class="cd"></span><b>战斧</b><small>范围砸击</small></button>
+      <button class="skill" data-action="s5" data-cd="s5" aria-label="橡胶火箭，30体力，14秒冷却"><span class="cd"></span><b>火箭</b><small>突进撞击</small></button>
+      <button class="skill ultimate-btn" data-action="ultimate" data-cd="ultimate" aria-label="三档巨人之拳，满蓄力，40秒冷却"><span class="cd"></span><b>巨人拳</b><small>三档大招</small></button>
       <button class="skill haki-btn" data-action="haki" data-cd="haki"><span class="cd"></span><b>霸气</b><small>震慑</small></button>
       <button class="skill" data-action="s3" data-cd="s3"><span class="cd"></span><b>爆发</b><small>强化</small></button>
       <button class="skill" data-action="s2" data-cd="s2"><span class="cd"></span><b>飞拳</b><small>范围</small></button>
@@ -101,6 +104,6 @@
       caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
     }
   </script>
-  <script type="module" src="./game.js?v=8"></script>
+  <script type="module" src="./game.js?v=9"></script>
 </body>
 </html>
