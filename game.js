@@ -346,7 +346,15 @@ function finish(win){
 function formatTime(t){ const m=Math.floor(t/60),s=Math.floor(t%60);return m+":"+String(s).padStart(2,"0"); }
 
 function playerDirection(){
-  return new THREE.Vector3(Math.sin(state.yaw),0,-Math.cos(state.yaw)).normalize();
+  // Build movement from the exact same Euler convention as the camera.
+  return new THREE.Vector3(0,0,-1)
+    .applyEuler(new THREE.Euler(0,state.yaw,0,"YXZ"))
+    .normalize();
+}
+function playerRightDirection(){
+  return new THREE.Vector3(1,0,0)
+    .applyEuler(new THREE.Euler(0,state.yaw,0,"YXZ"))
+    .normalize();
 }
 function aimDirection(){
   if(state.mode==="top"){
@@ -372,7 +380,7 @@ function updatePlayer(dt){
   let ix=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0)+state.joy.x;
   let iz=(state.keys.KeyW?1:0)-(state.keys.KeyS?1:0)-state.joy.y;
   const l=Math.hypot(ix,iz); if(l>1){ix/=l;iz/=l;}
-  const f=playerDirection(), r=new THREE.Vector3(Math.cos(state.yaw),0,Math.sin(state.yaw));
+  const f=playerDirection(), r=playerRightDirection();
   const move=new THREE.Vector3().addScaledVector(f,iz).addScaledVector(r,ix);
   const moving=move.lengthSq()>.01;
   let speed=p.speed*(p.buff>0?1.3:1);
@@ -391,7 +399,7 @@ function updatePlayer(dt){
     arms.visible=true;
   }else{
     const forward=playerDirection();
-    const right=new THREE.Vector3(Math.cos(state.yaw),0,Math.sin(state.yaw));
+    const right=playerRightDirection();
     const cameraAnchor=p.pos.clone().add(new THREE.Vector3(0,7.2,0)).addScaledVector(forward,-8.6).addScaledVector(right,1.0);
     const lookAhead=p.pos.clone().add(new THREE.Vector3(0,2.15,0)).addScaledVector(forward,13);
     camera.position.copy(cameraAnchor);
@@ -416,7 +424,7 @@ function beginDodge(){
   p.stamina-=28;p.cooldowns.dodge=1.1;p.dodge=.24;p.invuln=.34;
   let ix=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0)+state.joy.x;
   let iz=(state.keys.KeyW?1:0)-(state.keys.KeyS?1:0)-state.joy.y;
-  const f=playerDirection(),r=new THREE.Vector3(Math.cos(state.yaw),0,Math.sin(state.yaw));
+  const f=playerDirection(),r=playerRightDirection();
   p.dodgeDir=new THREE.Vector3().addScaledVector(f,iz||1).addScaledVector(r,ix).normalize();
   audio.tone(130,.1,"sine",.04);
 }
