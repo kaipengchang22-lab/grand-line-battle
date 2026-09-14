@@ -389,10 +389,12 @@ function updatePlayer(dt){
     camera.rotation.set(state.pitch,state.yaw,0);
     arms.visible=true;
   }else{
-    const target=p.pos.clone(); target.y=2.1;
-    const back=playerDirection().multiplyScalar(-10.5);
-    camera.position.copy(target).add(back).add(new THREE.Vector3(0,10.8,0));
-    camera.lookAt(target); arms.visible=false;
+    const forward=playerDirection();
+    const right=new THREE.Vector3(Math.cos(state.yaw),0,Math.sin(state.yaw));
+    const cameraAnchor=p.pos.clone().add(new THREE.Vector3(0,7.2,0)).addScaledVector(forward,-8.6).addScaledVector(right,1.0);
+    const lookAhead=p.pos.clone().add(new THREE.Vector3(0,2.15,0)).addScaledVector(forward,13);
+    camera.position.copy(cameraAnchor);
+    camera.lookAt(lookAhead); arms.visible=false;
   }
   if(state.shake>0){
     state.shake=Math.max(0,state.shake-dt*2.6);
@@ -694,34 +696,66 @@ function bindControls(){
   addEventListener("mousedown",e=>{if(e.button===0&&document.pointerLockElement===canvas)attack();});
   addEventListener("contextmenu",e=>e.preventDefault());
 
-  let joyId=null,joyRect;
-  const updateJoy=e=>{const cx=joyRect.left+joyRect.width/2,cy=joyRect.top+joyRect.height/2;
-    let dx=e.clientX-cx,dy=e.clientY-cy;const r=joyRect.width*.42,l=Math.hypot(dx,dy);if(l>r){dx*=r/l;dy*=r/l;}
-    const rawX=dx/r,rawY=dy/r,mag=Math.hypot(rawX,rawY),dead=.12;
-    const scale=mag>dead?(mag-dead)/(1-dead):0;
-    state.joy.x=mag>dead?rawX/mag*scale:0;state.joy.y=mag>dead?rawY/mag*scale:0;
+  const useTouch=("ontouchstart" in window)||(navigator.maxTouchPoints||0)>0;
+  let joyId=null,joyRect=null;
+  const updateJoyPoint=(clientX,clientY)=>{
+    if(!joyRect)return;
+    const cx=joyRect.left+joyRect.width/2,cy=joyRect.top+joyRect.height/2;
+    let dx=clientX-cx,dy=clientY-cy;const radius=joyRect.width*.38,length=Math.hypot(dx,dy);
+    if(length>radius){dx*=radius/length;dy*=radius/length;}
+    const rawX=dx/radius,rawY=dy/radius,magnitude=Math.hypot(rawX,rawY),dead=.1;
+    const strength=magnitude>dead?Math.min(1,(magnitude-dead)/(1-dead)):0;
+    state.joy.x=magnitude>dead?rawX/magnitude*strength:0;
+    state.joy.y=magnitude>dead?rawY/magnitude*strength:0;
     ui.stick.style.transform="translate("+dx+"px,"+dy+"px)";
   };
-  ui.joystick.addEventListener("pointerdown",e=>{
-    joyId=e.pointerId;joyRect=ui.joystick.getBoundingClientRect();
-    ui.joystick.setPointerCapture(e.pointerId);updateJoy(e);e.preventDefault();e.stopPropagation();
-  });
-  const moveJoy=e=>{if(e.pointerId===joyId){updateJoy(e);e.preventDefault();}};
-  addEventListener("pointermove",moveJoy,{passive:false});
-  const endJoy=e=>{if(joyId!==null&&(e.pointerId===undefined||e.pointerId===joyId)){
-    joyId=null;state.joy.x=state.joy.y=0;ui.stick.style.transform="translate(0,0)";
-  }};
-  addEventListener("pointerup",endJoy,{passive:true});addEventListener("pointercancel",endJoy,{passive:true});
-  ui.joystick.addEventListener("lostpointercapture",endJoy);
+  const resetJoy=()=>{joyId=null;joyRect=null;state.joy.x=0;state.joy.y=0;ui.stick.style.transform="translate(0,0)";};
 
   let lookId=null,lx=0,ly=0;
-  ui.lookZone.addEventListener("pointerdown",e=>{
-    lookId=e.pointerId;lx=e.clientX;ly=e.clientY;ui.lookZone.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
-  });
-  ui.lookZone.addEventListener("pointermove",e=>{if(e.pointerId===lookId){const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;
-    state.yaw-=dx*.006;state.pitch=clamp(state.pitch-dy*.005,-1.05,1);e.preventDefault();}});
-  const endLook=e=>{if(e.pointerId===lookId)lookId=null;};
-  ui.lookZone.addEventListener("pointerup",endLook);ui.lookZone.addEventListener("pointercancel",endLook);
+  const updateLookPoint=(clientX,clientY)=>{
+    const dx=clientX-lx,dy=clientY-ly;lx=clientX;ly=clientY;
+    state.yaw-=dx*.006;state.pitch=clamp(state.pitch-dy*.005,-1.05,1);
+  };
+  const resetLook=()=>{lookId=null;};
+
+  if(useTouch){
+    ui.joystick.addEventListener("touchstart",e=>{
+      if(joyId!==null)return;const t=e.changedTouches[0];joyId=t.identifier;
+      joyRect=ui.joystick.getBoundingClientRect();updateJoyPoint(t.clientX,t.clientY);e.preventDefault();
+    },{passive:false});
+    ui.joystick.addEventListener("touchmove",e=>{
+      const t=Array.from(e.touches).find(v=>v.identifier===joyId);if(t){updateJoyPoint(t.clientX,t.clientY);e.preventDefault();}
+    },{passive:false});
+    const endJoyTouch=e=>{if(Array.from(e.changedTouches).some(v=>v.identifier===joyId)){resetJoy();e.preventDefault();}};
+    ui.joystick.addEventListener("touchend",endJoyTouch,{passive:false});
+    ui.joystick.addEventListener("touchcancel",endJoyTouch,{passive:false});
+
+    ui.lookZone.addEventListener("touchstart",e=>{
+      if(lookId!==null)return;const t=e.changedTouches[0];lookId=t.identifier;lx=t.clientX;ly=t.clientY;e.preventDefault();
+    },{passive:false});
+    ui.lookZone.addEventListener("touchmove",e=>{
+      const t=Array.from(e.touches).find(v=>v.identifier===lookId);if(t){updateLookPoint(t.clientX,t.clientY);e.preventDefault();}
+    },{passive:false});
+    const endLookTouch=e=>{if(Array.from(e.changedTouches).some(v=>v.identifier===lookId)){resetLook();e.preventDefault();}};
+    ui.lookZone.addEventListener("touchend",endLookTouch,{passive:false});
+    ui.lookZone.addEventListener("touchcancel",endLookTouch,{passive:false});
+  }else{
+    ui.joystick.addEventListener("pointerdown",e=>{
+      joyId=e.pointerId;joyRect=ui.joystick.getBoundingClientRect();ui.joystick.setPointerCapture(e.pointerId);
+      updateJoyPoint(e.clientX,e.clientY);e.preventDefault();
+    });
+    ui.joystick.addEventListener("pointermove",e=>{if(e.pointerId===joyId){updateJoyPoint(e.clientX,e.clientY);e.preventDefault();}});
+    const endJoyPointer=e=>{if(e.pointerId===joyId)resetJoy();};
+    ui.joystick.addEventListener("pointerup",endJoyPointer);ui.joystick.addEventListener("pointercancel",endJoyPointer);
+    ui.joystick.addEventListener("lostpointercapture",endJoyPointer);
+
+    ui.lookZone.addEventListener("pointerdown",e=>{
+      lookId=e.pointerId;lx=e.clientX;ly=e.clientY;ui.lookZone.setPointerCapture(e.pointerId);e.preventDefault();
+    });
+    ui.lookZone.addEventListener("pointermove",e=>{if(e.pointerId===lookId){updateLookPoint(e.clientX,e.clientY);e.preventDefault();}});
+    const endLookPointer=e=>{if(e.pointerId===lookId)resetLook();};
+    ui.lookZone.addEventListener("pointerup",endLookPointer);ui.lookZone.addEventListener("pointercancel",endLookPointer);
+  }
 
   document.querySelectorAll("[data-action]").forEach(b=>b.addEventListener("pointerdown",e=>{
     e.preventDefault();e.stopPropagation();({attack, dodge:beginDodge,s1:skill1,s2:skill2,s3:skill3,haki:useHaki}[b.dataset.action])();
@@ -744,4 +778,7 @@ function animate(){
   renderer.render(scene,camera);
 }
 renderer.setAnimationLoop(animate);
-if("serviceWorker" in navigator)navigator.serviceWorker.register("./sw.js").catch(()=>{});
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.getRegistrations().then(registrations=>Promise.all(registrations.map(registration=>registration.unregister()))).catch(()=>{});
+}
+if("caches" in window)caches.keys().then(keys=>Promise.all(keys.map(key=>caches.delete(key)))).catch(()=>{});
