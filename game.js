@@ -349,6 +349,14 @@ function playerDirection(){
   return new THREE.Vector3(Math.sin(state.yaw),0,-Math.cos(state.yaw)).normalize();
 }
 function aimDirection(){
+  if(state.mode==="top"){
+    const view=new THREE.Vector3();camera.getWorldDirection(view);
+    const origin=camera.position.clone();
+    const t=Math.abs(view.y)>.05?(1.55-origin.y)/view.y:40;
+    const point=t>0?origin.clone().addScaledVector(view,t):state.player.pos.clone().addScaledVector(playerDirection(),40);
+    const flat=point.sub(state.player.pos);flat.y=0;
+    return flat.lengthSq()>.01?flat.normalize():playerDirection();
+  }
   const e=new THREE.Euler(state.pitch,state.yaw,0,"YXZ");
   return new THREE.Vector3(0,0,-1).applyEuler(e).normalize();
 }
@@ -381,9 +389,9 @@ function updatePlayer(dt){
     camera.rotation.set(state.pitch,state.yaw,0);
     arms.visible=true;
   }else{
-    const target=p.pos.clone(); target.y=.9;
-    const back=playerDirection().multiplyScalar(-10);
-    camera.position.copy(target).add(back).add(new THREE.Vector3(0,12,0));
+    const target=p.pos.clone(); target.y=2.1;
+    const back=playerDirection().multiplyScalar(-10.5);
+    camera.position.copy(target).add(back).add(new THREE.Vector3(0,10.8,0));
     camera.lookAt(target); arms.visible=false;
   }
   if(state.shake>0){
@@ -503,7 +511,7 @@ function updateEnemies(dt){
   state.enemies=state.enemies.filter(e=>!e.dead);
 }
 function updateBoss(e,dt){
-  const p=state.player,to=p.pos.clone().sub(e.pos);to.y=0,d=to.length();
+  const p=state.player,to=p.pos.clone().sub(e.pos);to.y=0;const d=to.length();
   e.model.rotation.y=Math.atan2(to.x,to.z);
   if(e.hp<e.maxHp*.5&&!e.phase2){
     e.phase2=true;e.speed=3.45;e.model.scale.multiplyScalar(1.08);pulse(e.pos,C.red,8);
@@ -688,18 +696,30 @@ function bindControls(){
 
   let joyId=null,joyRect;
   const updateJoy=e=>{const cx=joyRect.left+joyRect.width/2,cy=joyRect.top+joyRect.height/2;
-    let dx=e.clientX-cx,dy=e.clientY-cy;const r=joyRect.width*.34,l=Math.hypot(dx,dy);if(l>r){dx*=r/l;dy*=r/l;}
-    state.joy.x=dx/r;state.joy.y=dy/r;ui.stick.style.transform="translate("+dx+"px,"+dy+"px)";
+    let dx=e.clientX-cx,dy=e.clientY-cy;const r=joyRect.width*.42,l=Math.hypot(dx,dy);if(l>r){dx*=r/l;dy*=r/l;}
+    const rawX=dx/r,rawY=dy/r,mag=Math.hypot(rawX,rawY),dead=.12;
+    const scale=mag>dead?(mag-dead)/(1-dead):0;
+    state.joy.x=mag>dead?rawX/mag*scale:0;state.joy.y=mag>dead?rawY/mag*scale:0;
+    ui.stick.style.transform="translate("+dx+"px,"+dy+"px)";
   };
-  ui.joystick.addEventListener("pointerdown",e=>{joyId=e.pointerId;joyRect=ui.joystick.getBoundingClientRect();ui.joystick.setPointerCapture(e.pointerId);updateJoy(e);e.preventDefault();});
-  ui.joystick.addEventListener("pointermove",e=>{if(e.pointerId===joyId)updateJoy(e);});
-  const endJoy=e=>{if(e.pointerId===joyId){joyId=null;state.joy.x=state.joy.y=0;ui.stick.style.transform="translate(0,0)";}};
-  ui.joystick.addEventListener("pointerup",endJoy);ui.joystick.addEventListener("pointercancel",endJoy);
+  ui.joystick.addEventListener("pointerdown",e=>{
+    joyId=e.pointerId;joyRect=ui.joystick.getBoundingClientRect();
+    ui.joystick.setPointerCapture(e.pointerId);updateJoy(e);e.preventDefault();e.stopPropagation();
+  });
+  const moveJoy=e=>{if(e.pointerId===joyId){updateJoy(e);e.preventDefault();}};
+  addEventListener("pointermove",moveJoy,{passive:false});
+  const endJoy=e=>{if(joyId!==null&&(e.pointerId===undefined||e.pointerId===joyId)){
+    joyId=null;state.joy.x=state.joy.y=0;ui.stick.style.transform="translate(0,0)";
+  }};
+  addEventListener("pointerup",endJoy,{passive:true});addEventListener("pointercancel",endJoy,{passive:true});
+  ui.joystick.addEventListener("lostpointercapture",endJoy);
 
   let lookId=null,lx=0,ly=0;
-  ui.lookZone.addEventListener("pointerdown",e=>{lookId=e.pointerId;lx=e.clientX;ly=e.clientY;ui.lookZone.setPointerCapture(e.pointerId);});
+  ui.lookZone.addEventListener("pointerdown",e=>{
+    lookId=e.pointerId;lx=e.clientX;ly=e.clientY;ui.lookZone.setPointerCapture(e.pointerId);e.preventDefault();e.stopPropagation();
+  });
   ui.lookZone.addEventListener("pointermove",e=>{if(e.pointerId===lookId){const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;
-    state.yaw-=dx*.006;state.pitch=clamp(state.pitch-dy*.005,-1.05,1);}});
+    state.yaw-=dx*.006;state.pitch=clamp(state.pitch-dy*.005,-1.05,1);e.preventDefault();}});
   const endLook=e=>{if(e.pointerId===lookId)lookId=null;};
   ui.lookZone.addEventListener("pointerup",endLook);ui.lookZone.addEventListener("pointercancel",endLook);
 
