@@ -692,13 +692,21 @@ function updateHazards(dt){
   }
 }
 function pulse(pos,color,radius){
-  const m=new THREE.Mesh(new THREE.RingGeometry(.5,.72,32),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.8,side:THREE.DoubleSide}));
+  const ringMat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:.86,side:THREE.DoubleSide,depthWrite:false});
+  const m=new THREE.Mesh(new THREE.RingGeometry(.5,.72,32),ringMat);
   m.rotation.x=-Math.PI/2;m.position.copy(pos);m.position.y=.12;scene.add(m);
   state.effects.push({mesh:m,time:.55,total:.55,radius});
+  const core=new THREE.Mesh(new THREE.RingGeometry(.16,.32,24),new THREE.MeshBasicMaterial({
+    color:0xffffff,transparent:true,opacity:.92,side:THREE.DoubleSide,depthWrite:false
+  }));
+  core.rotation.x=-Math.PI/2;core.position.copy(pos);core.position.y=.135;scene.add(core);
+  state.effects.push({mesh:core,time:.32,total:.32,radius:radius*.68});
 }
 function burst(pos,color,count){
   for(let i=0;i<count;i++){
-    const m=new THREE.Mesh(new THREE.BoxGeometry(.12,.12,.12),toon(color,color));m.position.copy(pos).add(new THREE.Vector3(0,2,0));scene.add(m);
+    const size=.1+Math.random()*.16;
+    const m=new THREE.Mesh(new THREE.TetrahedronGeometry(size,0),toon(i%4===0?0xffffff:color,color));
+    m.position.copy(pos).add(new THREE.Vector3(0,1.7+Math.random()*.8,0));m.scale.y=1.8+Math.random()*2.4;scene.add(m);
     const v=new THREE.Vector3(Math.random()-.5,Math.random()*.85+.2,Math.random()-.5).normalize().multiplyScalar(5+Math.random()*5);
     state.effects.push({mesh:m,time:.6+Math.random()*.35,total:1,vel:v});
   }
