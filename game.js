@@ -195,7 +195,7 @@ const state = {
 
 // Runtime-ready Spine data for the player.  The renderer keeps the existing
 // high-resolution action atlas as a safe visual fallback, while this asset
-// drives the hidden cutout rig's bone timelines as soon as the JSON/atlas
+// drives the visible cutout rig's bone timelines as soon as the JSON/atlas
 // pair has loaded.  That lets us ship a real Spine pack without risking a
 // blank scene if a mobile browser is offline during startup.
 const LuffySpineAsset={
@@ -223,6 +223,11 @@ async function loadLuffySpineAsset(){
     const data=await jsonResponse.json(),atlas=await atlasResponse.text();
     if(!data?.bones||!data?.slots||!data?.skins||!data?.animations)throw new Error("invalid Spine skeleton data");
     state.playerModel.userData.spineAsset={ready:true,data,atlas,image:LuffySpineAsset.image,animations:Object.keys(data.animations),durations:spineAnimationDurations(data),current:"idle",time:0};
+    new THREE.TextureLoader().load(LuffySpineAsset.image,texture=>{
+      texture.colorSpace=THREE.SRGBColorSpace;texture.magFilter=THREE.LinearFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;
+      state.playerModel.userData.spineAsset.texture=texture;
+      attachLuffySpineCutout(state.playerModel,texture);
+    },undefined,error=>console.warn("[Spine] Luffy attachment image fallback:",error));
   }catch(error){
     console.warn("[Spine] Luffy asset fallback:",error);
   }
@@ -511,34 +516,88 @@ function createPlayerModel(){
   g.userData.sprite=sprite;g.userData.depthSprite=depthSprite;g.userData.shadow=shadow;
   g.userData.spriteAction="idle";g.userData.facing=1;
   g.userData.rimSprite=rimSprite;
-  setupSpineStyleRig(g,sprite,depthSprite,rimSprite,"luffy");
+  setupSpineStyleRig(g,sprite,depthSprite,rimSprite,"luffy",true);
   return g;
 }
 
-// The repository currently contains flattened PNG/WebP atlases rather than
-// exported Spine JSON/atlas files.  This lightweight cutout rig keeps the
-// same authoring idea—root, pelvis, torso, chest, head, arms and legs—while
-// driving the existing art with interpolated bone-like transforms.  It is
-// deliberately isolated so exported Spine attachments can replace the three
-// visual layers later without changing combat code.
-function setupSpineStyleRig(root,main,depth,rim,role="marine"){
-  const skeleton=new THREE.Group();skeleton.name="spine-skeleton";skeleton.visible=false;root.add(skeleton);
+// Lightweight Spine-compatible cutout rig.  Luffy gets a visible copy of the
+// same bone hierarchy; marine actors keep the old full-body atlas fallback
+// until their own exported parts are ready.
+function setupSpineStyleRig(root,main,depth,rim,role="marine",visible=false){
+  const skeleton=new THREE.Group();skeleton.name="spine-skeleton";skeleton.visible=visible;root.add(skeleton);
   const bones={root:skeleton,pelvis:new THREE.Group(),torso:new THREE.Group(),chest:new THREE.Group(),neck:new THREE.Group(),head:new THREE.Group(),hat:new THREE.Group(),armL:new THREE.Group(),forearmL:new THREE.Group(),armR:new THREE.Group(),forearmR:new THREE.Group(),sash:new THREE.Group(),shortsL:new THREE.Group(),legL:new THREE.Group(),shortsR:new THREE.Group(),legR:new THREE.Group()};
   skeleton.add(bones.pelvis);bones.pelvis.add(bones.torso,bones.sash,bones.shortsL,bones.shortsR);
   bones.torso.add(bones.chest,bones.armL,bones.armR);bones.chest.add(bones.neck);bones.neck.add(bones.head);bones.head.add(bones.hat);
   bones.armL.add(bones.forearmL);bones.armR.add(bones.forearmR);bones.shortsL.add(bones.legL);bones.shortsR.add(bones.legR);
-  root.userData.spineRig={role,bones,drawOrder:["rim","depth","main"],attachments:{main,depth,rim},base:{
+  // Bind-pose offsets are the local coordinates used by the cutout parts.
+  bones.pelvis.position.set(0,.30,0);
+  bones.torso.position.set(0,1.22,0);
+  bones.chest.position.set(0,1.22,0);
+  bones.neck.position.set(0,1.00,0);
+  bones.head.position.set(0,.82,0);
+  bones.hat.position.set(0,.92,0);
+  bones.armL.position.set(-1.02,1.04,0);
+  bones.forearmL.position.set(0,-1.02,0);
+  bones.armR.position.set(1.02,1.04,0);
+  bones.forearmR.position.set(0,-1.02,0);
+  bones.sash.position.set(0,.82,0);
+  bones.shortsL.position.set(-.55,.64,0);
+  bones.legL.position.set(0,-.98,0);
+  bones.shortsR.position.set(.55,.64,0);
+  bones.legR.position.set(0,-.98,0);
+  const bind={};Object.entries(bones).forEach(([name,bone])=>{bind[name]={position:bone.position.clone(),rotation:bone.rotation.clone(),scale:bone.scale.clone()};});
+  root.userData.spineRig={role,bones,bind,drawOrder:["rim","depth","main"],attachments:{main,depth,rim},base:{
     mainPos:main?.position.clone()||new THREE.Vector3(),mainScale:main?.scale.clone()||new THREE.Vector3(1,1,1),
     depthPos:depth?.position.clone()||new THREE.Vector3(),depthScale:depth?.scale.clone()||new THREE.Vector3(1,1,1),
     rimPos:rim?.position.clone()||new THREE.Vector3(),rimScale:rim?.scale.clone()||new THREE.Vector3(1,1,1)
   }};
 }
+
+// Build visible sprites from the generated transparent parts sheet.  Every
+// sprite is parented to its named bone, so the JSON timelines and the local
+// walk/attack pose both move the correct limb instead of rotating one flat
+// full-body image.
+function attachLuffySpineCutout(root,texture){
+  const rig=root?.userData?.spineRig;if(!rig||rig.cutoutReady||!texture)return;
+  const W=1145,H=1374;
+  const defs=[
+    {name:"leg-l",bone:"legL",cell:[572,1030,286,344],size:[.78,1.78],pos:[0,0],order:1},
+    {name:"leg-r",bone:"legR",cell:[859,1030,286,344],size:[.78,1.78],pos:[0,0],order:2},
+    {name:"shorts-l",bone:"shortsL",cell:[286,688,286,344],size:[1.28,1.18],pos:[0,0],order:3},
+    {name:"shorts-r",bone:"shortsR",cell:[572,688,286,344],size:[1.28,1.18],pos:[0,0],order:4},
+    {name:"sash",bone:"sash",cell:[0,688,286,344],size:[2.72,1.04],pos:[0,0],order:5},
+    {name:"torso",bone:"torso",cell:[859,0,286,344],size:[2.55,2.28],pos:[0,0],order:6},
+    {name:"upper-arm-l",bone:"armL",cell:[0,344,286,344],size:[.98,1.52],pos:[0,0],order:7},
+    {name:"upper-arm-r",bone:"armR",cell:[572,344,286,344],size:[.98,1.52],pos:[0,0],order:8},
+    {name:"forearm-l",bone:"forearmL",cell:[286,344,286,344],size:[.82,1.58],pos:[0,0],order:9},
+    {name:"forearm-r",bone:"forearmR",cell:[859,344,286,344],size:[.82,1.58],pos:[0,0],order:10},
+    {name:"neck",bone:"neck",cell:[572,0,286,344],size:[.86,.70],pos:[0,0],order:11},
+    {name:"head",bone:"head",cell:[286,0,286,344],size:[2.18,2.18],pos:[0,.06],order:12},
+    {name:"hat",bone:"hat",cell:[0,0,286,344],size:[3.22,1.52],pos:[0,.38],order:13}
+  ];
+  const group=rig.bones.root;group.scale.setScalar(.82);rig.cutoutScale=.82;rig.cutoutSprites={};
+  defs.forEach(d=>{
+    const [x,y,w,h]=d.cell,map=texture.clone();map.needsUpdate=true;
+    map.wrapS=THREE.ClampToEdgeWrapping;map.wrapT=THREE.ClampToEdgeWrapping;
+    map.repeat.set(w/W,h/H);map.offset.set(x/W,1-(y+h)/H);
+    const material=new THREE.SpriteMaterial({map,transparent:true,alphaTest:.04,depthTest:false,depthWrite:false,color:0xffffff,toneMapped:false});
+    const sprite=new THREE.Sprite(material);sprite.center.set(.5,.5);sprite.position.set(d.pos[0],d.pos[1],.14+d.order*.001);sprite.scale.set(d.size[0],d.size[1],1);sprite.renderOrder=10+d.order;sprite.frustumCulled=false;
+    rig.bones[d.bone]?.add(sprite);rig.cutoutSprites[d.name]=sprite;
+  });
+  rig.cutoutReady=true;rig.bones.root.visible=true;root.userData.spineCutoutGroup=group;
+  // Keep the old atlas alive as a network/offline fallback, then remove it
+  // from the draw list once all transparent parts are ready.
+  if(rig.attachments.main)rig.attachments.main.visible=false;
+  if(rig.attachments.depth)rig.attachments.depth.visible=false;
+  if(rig.attachments.rim)rig.attachments.rim.visible=false;
+}
 function updateSpineStyleRig(root,{moving=false,action="idle",progress=0,look=0,flash=false,buff=false}={}){
   const rig=root.userData.spineRig;if(!rig)return;
+  Object.entries(rig.bones).forEach(([name,bone])=>{if(name!=="root"&&rig.bind?.[name]){bone.position.copy(rig.bind[name].position);bone.rotation.copy(rig.bind[name].rotation);bone.scale.copy(rig.bind[name].scale);}});
   const b=rig.bones,p=clamp(progress,0,1),step=state.time*(moving?8.5:2.2),walkWave=Math.sin(step),walkLift=moving?Math.abs(walkWave)*.06:0;
   const actionPulse=(action!=="idle"&&action!=="walk")?Math.sin(Math.PI*p):0;
   const sideLook=clamp(Math.sin(look)*.08,-.1,.1);
-  b.pelvis.position.set(0,walkLift*.28,.012);b.pelvis.rotation.z=moving?walkWave*.026:0;b.pelvis.rotation.y=sideLook*.35;
+  b.pelvis.position.set(rig.bind.pelvis.position.x,rig.bind.pelvis.position.y+walkLift*.28,rig.bind.pelvis.position.z+.012);b.pelvis.rotation.z=moving?walkWave*.026:0;b.pelvis.rotation.y=sideLook*.35;
   b.torso.position.z=.028;b.chest.position.z=.044;b.head.position.z=.062;b.armL.position.z=.036;b.armR.position.z=.048;b.legL.position.z=.018;b.legR.position.z=.02;
   b.torso.rotation.z=(moving?walkWave*.012:0)+actionPulse*.035;b.torso.rotation.y=sideLook;
   b.chest.rotation.x=actionPulse*.045;b.chest.rotation.z=-actionPulse*.02;
@@ -561,6 +620,7 @@ function updateSpineStyleRig(root,{moving=false,action="idle",progress=0,look=0,
     a.rim.material.opacity=flash?.58:(buff?.34:.22);
     a.rim.material.color.setHex(flash?0xffd5b5:(buff?0xffbe70:0x76dcff));
   }
+  if(rig.cutoutReady){const sx=(root.userData.facing||1)<0?-(rig.cutoutScale||.82):(rig.cutoutScale||.82);b.root.scale.set(sx,rig.cutoutScale||.82,rig.cutoutScale||.82);}
 }
 
 function setPlayerSpriteFrame(row,column,flip=false){
