@@ -45,7 +45,7 @@ const mats = new Map();
 // is a technical skeleton test and must not silently replace the polished
 // sprite character on players' phones.
 const PLAYER_3D_ASSET = {
-  url:"./assets/models/straw-hat-hero-original.glb",
+  url:"./assets/models/straw-hat-hero-original.glb?v=3",
   // The free hand-authored GLB is opt-in until its in-game scale and silhouette
   // are approved.  Open the game with ?model=original to test it.
   testMode:new URLSearchParams(location.search).get("model")==="original",
