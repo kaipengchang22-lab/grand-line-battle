@@ -40,18 +40,16 @@ const C = {
   skin2:0xb96f50, brown:0x623a2c, black:0x111924, green:0x35c48d, purple:0x7d57d1
 };
 const mats = new Map();
-// The game now has a real GLB/skin/animation entry point.  It is deliberately
-// opt-in until a production-quality character is supplied: the bundled model
-// is a technical skeleton test and must not silently replace the polished
-// sprite character on players' phones.
-const PLAYER_3D_ASSET = {
-  url:"./assets/models/straw-hat-hero-original.glb?v=3",
-  // The free hand-authored GLB is opt-in until its in-game scale and silhouette
-  // are approved.  Open the game with ?model=original to test it.
-  testMode:new URLSearchParams(location.search).get("model")==="original",
-  scale:1.85,
-  y:0
-};
+// GLB choices are opt-in so the default mobile character stays stable.
+const playerModelChoice=new URLSearchParams(location.search).get("model");
+const PLAYER_3D_ASSET={
+  original:{url:"./assets/models/straw-hat-hero-original.glb?v=3",scale:1.85,y:0,orientation:0},
+  "rigged-luffy":{
+    url:"./assets/models/luffy-semirealistic-rigged-animated.glb?v=1",scale:.6,y:.51,
+    // This GLB faces -Z; the existing sprite root faces +Z.
+    orientation:Math.PI
+  }
+}[playerModelChoice]||null;
 const playerSpriteTexture=new THREE.TextureLoader().load("./assets/luffy-sprite-atlas.webp");
 playerSpriteTexture.colorSpace=THREE.SRGBColorSpace;
 playerSpriteTexture.wrapS=playerSpriteTexture.wrapT=THREE.RepeatWrapping;
@@ -539,22 +537,35 @@ function createPlayerModel(){
 // Idle, Walk, Attack (Hurt is optional).  The gameplay state remains the
 // authority; the animation mixer never moves the player in world space.
 function loadPlayerGLB(root){
-  if(!PLAYER_3D_ASSET.testMode)return;
+  if(!PLAYER_3D_ASSET)return;
   const loader=new GLTFLoader();
   loader.load(PLAYER_3D_ASSET.url,gltf=>{
     const model=gltf.scene;
+    // Reject unskinned or incomplete test files before hiding the fallback.
+    if(playerModelChoice==="rigged-luffy"&&(
+      !model.getObjectByProperty("isSkinnedMesh",true)||
+      !["idle","walk","attack"].every(name=>gltf.animations.some(clip=>clip.name.toLowerCase()===name))
+    )){
+      console.warn("[GLB] rigged-luffy needs a skinned mesh and Idle/Walk/Attack clips");
+      return;
+    }
     model.name="Luffy_GLTF_Character";
     model.position.y=PLAYER_3D_ASSET.y;
+    model.rotation.y=PLAYER_3D_ASSET.orientation;
     model.scale.setScalar(PLAYER_3D_ASSET.scale);
     model.traverse(node=>{
       if(!node.isMesh)return;
-      node.castShadow=true;node.receiveShadow=true;
+      // A 53k-triangle mobile character should not be drawn again in the
+      // shadow pass; keep its cheap ground contact shadow instead.
+      node.castShadow=playerModelChoice!=="rigged-luffy";
+      node.receiveShadow=true;
       // Keep the original PBR textures and let the game's existing
       // hemisphere/sun/rim lights provide shape, rather than flattening it
       // into a sprite-like basic material.
-      if(node.material){
-        node.material.transparent=false;
-        node.material.needsUpdate=true;
+      for(const material of Array.isArray(node.material)?node.material:[node.material]){
+        if(!material)continue;
+        material.transparent=false;
+        material.needsUpdate=true;
       }
     });
     const mixer=new THREE.AnimationMixer(model);
@@ -564,7 +575,7 @@ function loadPlayerGLB(root){
     root.userData.model3d={enabled:true,model,mixer,actions,current:null};
     // Only hide the 2D fallback after GLB parsing succeeds.
     [root.userData.sprite,root.userData.depthSprite,root.userData.rimSprite].forEach(item=>{if(item)item.visible=false;});
-    if(root.userData.shadow)root.userData.shadow.visible=false;
+    if(root.userData.shadow)root.userData.shadow.visible=playerModelChoice==="rigged-luffy";
     playPlayer3DAction(root,"idle",true);
     toast("3D角色测试资源已加载",900);
   },undefined,error=>{
@@ -589,7 +600,7 @@ function updatePlayer3D(root,dt,moving,p){
   const bob=moving?Math.abs(Math.sin(state.time*8.5))*.055:0;
   data.model.position.y=PLAYER_3D_ASSET.y+bob;
   data.model.rotation.z=p.hurtAnim>0?Math.sin(Math.PI*p.hurtAnim)*-.11:0;
-  data.model.rotation.y=Math.sin(state.yaw)*.025;
+  data.model.rotation.y=PLAYER_3D_ASSET.orientation+Math.sin(state.yaw)*.025;
   return true;
 }
 
