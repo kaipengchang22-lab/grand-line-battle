@@ -23,7 +23,7 @@
       <div class="start-features">
         <span>◉ 左摇杆只负责移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
       </div>
-      <small>V22 稳定版 · 已预留 GLB 真3D角色与骨骼动画管线</small>
+      <small>V23 稳定版 · 已预留 GLB 真3D角色与骨骼动画管线</small>
     </div>
   </section>
 
@@ -104,6 +104,6 @@
       caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
     }
   </script>
-  <script type="module" src="./game.js?v=22"></script>
+  <script type="importmap">\n    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js" } }\n  </script>\n  <script type="module" src="./game.js?v=23"></script>
 </body>
 </html>
