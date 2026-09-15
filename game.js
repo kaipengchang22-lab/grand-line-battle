@@ -84,6 +84,20 @@ const PLAYER_SPRITE_ANIMS={
   idle:{row:0,fps:5,loop:true},walk:{row:1,fps:9,loop:true},
   attack:{row:2,fps:12,loop:false},hurt:{row:3,fps:10,loop:false}
 };
+// First-person pose clips are deliberately short and hand-timed around the
+// gameplay events.  They reuse the detailed arm atlas while giving every
+// skill its own silhouette, anticipation and follow-through.
+const FIRST_PERSON_ACTIONS={
+  basic:{duration:.32,frames:[0,4,5,6,7]},
+  combo:{duration:.92,frames:[4,5,6,7,4,6,7]},
+  rocketPunch:{duration:.64,frames:[0,5,6,6]},
+  burst:{duration:.82,frames:[7,0,7,6]},
+  axe:{duration:.74,frames:[7,5,6,6]},
+  rocket:{duration:.62,frames:[5,6,5,6]},
+  giant:{duration:1.18,frames:[7,5,6,6]},
+  haki:{duration:.86,frames:[7,0,7,6]},
+  dodge:{duration:.28,frames:[1,2,3]}
+};
 const toonRamp=new THREE.DataTexture(new Uint8Array([42,105,185,255]),4,1,THREE.RedFormat);
 toonRamp.minFilter=THREE.NearestFilter;toonRamp.magFilter=THREE.NearestFilter;toonRamp.needsUpdate=true;
 const inkMaterial=new THREE.MeshBasicMaterial({color:C.ink,side:THREE.BackSide});
@@ -149,8 +163,8 @@ const state = {
   waveClock:0, kills:0, combo:0, comboTimer:0, score:0, yaw:0, pitch:-.04,
   player:{pos:new THREE.Vector3(0,1.7,40), hp:300,maxHp:300, stamina:100,haki:30,
     speed:9.2, cooldowns:{attack:0,dodge:0,s1:0,s2:0,s3:0,s4:0,s5:0,ultimate:0,haki:0}, dodge:0, invuln:0,
-    buff:0, attackAnim:0, hurtAnim:0},
-  enemies:[], projectiles:[], hazards:[], effects:[], ally:null, boss:null,
+    buff:0, attackAnim:0, hurtAnim:0, fpAction:null, fpActionTime:0, fpActionDuration:0},
+  enemies:[], projectiles:[], hazards:[], effects:[], fpEffects:[], ally:null, boss:null,
   keys:{}, joy:{x:0,y:0}, shake:0, gateOpen:0, nextId:1
 };
 
@@ -451,17 +465,47 @@ function buildArms(){
   sprite.scale.set(2.05,1.12,1);sprite.frustumCulled=false;sprite.renderOrder=22;
   arms.add(sprite);arms.userData.sprite=sprite;setFirstPersonFrame(0);
 }
+function applyFirstPersonPose(sprite,name,progress,frame){
+  const p=clamp(progress,0,1),pulse=Math.sin(Math.PI*p);
+  let x=0,y=0,rot=0,sx=2.05,sy=1.12;
+  if(name==="basic"){
+    x=.05+pulse*.10;y=.02+pulse*.06;rot=-.03+p*.08;sx=2.06+pulse*.22;sy=1.14+pulse*.16;
+  }else if(name==="combo"){
+    x=Math.sin(p*Math.PI*4)*.08;y=.04+pulse*.08;rot=Math.sin(p*Math.PI*2)*.08;sx=2.1+pulse*.28;sy=1.18+pulse*.20;
+  }else if(name==="rocketPunch"){
+    x=.10+pulse*.18;y=.02+pulse*.03;rot=.02;sx=2.12+pulse*.32;sy=1.20+pulse*.22;
+  }else if(name==="burst"){
+    y=.08+pulse*.12;rot=Math.sin(p*Math.PI)*.10;sx=2.20+pulse*.25;sy=1.35+pulse*.22;
+  }else if(name==="axe"){
+    x=-.04+pulse*.10;y=-.02+pulse*.12;rot=-.10+p*.22;sx=2.16+pulse*.28;sy=1.25+pulse*.28;
+  }else if(name==="rocket"){
+    x=.12+pulse*.20;y=pulse*.04;rot=.04;sx=2.30+pulse*.30;sy=1.28+pulse*.20;
+  }else if(name==="giant"){
+    y=.12+pulse*.18;rot=Math.sin(p*Math.PI*2)*.08;sx=2.30+pulse*.52;sy=1.55+pulse*.40;
+  }else if(name==="haki"){
+    y=.04+pulse*.08;rot=-.05+p*.10;sx=2.18+pulse*.25;sy=1.32+pulse*.22;
+  }else if(name==="dodge"){
+    x=Math.sin(p*Math.PI)*-.16;y=.02;rot=-.16+p*.32;sx=1.95;sy=1.10;
+  }
+  if(frame===6&&(name==="giant"||name==="rocketPunch"||name==="axe")){
+    sx*=1.05;sy*=1.08;
+  }
+  sprite.position.set(x,y,0);sprite.rotation.z=rot;sprite.scale.set(sx,sy,1);
+  return .86+pulse*.14;
+}
 function updateFirstPersonSprite(p,moving=false){
   const sprite=arms.userData.sprite;if(!sprite)return;
   const material=sprite.material;
-  const attack=p.attackAnim>0||p.castTime>0;
-  const hurt=!attack&&p.hurtAnim>0;
-  const blink=p.invuln>0&&Math.floor(state.time*22)%2;
-  const opacity=blink?.52:1;
+  const blink=p.invuln>0&&Math.floor(state.time*22)%2,opacity=blink?.52:1;
+  const hurt=p.hurtAnim>0;
+  const action=!hurt&&p.fpAction?FIRST_PERSON_ACTIONS[p.fpAction]:null;
   let frame=0,progress=0;
   if(hurt){
     frame=3;
-  }else if(attack){
+  }else if(action){
+    progress=clamp((p.fpActionTime||0)/Math.max(.001,p.fpActionDuration||action.duration),0,1);
+    const index=Math.min(action.frames.length-1,Math.floor(progress*action.frames.length));frame=action.frames[index];
+  }else if(p.attackAnim>0||p.castTime>0){
     progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
     if(p.castKind==="giant")frame=6;
     else if(p.castKind==="rocket")frame=5;
@@ -470,20 +514,114 @@ function updateFirstPersonSprite(p,moving=false){
     frame=1+(Math.floor(state.time*8)%2);
   }
   setFirstPersonFrame(frame);
-  material.opacity=opacity;
-  sprite.rotation.z=hurt?(1-p.hurtAnim)*.10:0;
-  if(attack){
-    const punch=clamp(progress,0,1),giant=frame===6;
-    sprite.position.set(.06+punch*.08,.02+punch*.05,0);
-    sprite.scale.set(giant?2.36:2.12,giant?1.72:1.26,1);
-    material.opacity=opacity*(.86+punch*.14);
+  if(action&&!hurt){
+    material.opacity=opacity*applyFirstPersonPose(sprite,p.fpAction,progress,frame);
   }else if(hurt){
-    sprite.position.set(0,-.06,.02);sprite.scale.set(1.92,1.22,1);
+    sprite.position.set(0,-.06,.02);sprite.rotation.z=(1-p.hurtAnim)*.10;sprite.scale.set(1.92,1.22,1);material.opacity=opacity;
+  }else if(p.attackAnim>0||p.castTime>0){
+    const punch=clamp(progress,0,1),giant=frame===6;
+    sprite.position.set(.06+punch*.08,.02+punch*.05,0);sprite.rotation.z=0;
+    sprite.scale.set(giant?2.36:2.12,giant?1.72:1.26,1);material.opacity=opacity*(.86+punch*.14);
   }else{
-    sprite.position.set(0,0,0);sprite.scale.set(2.05,1.12,1);
+    sprite.position.set(0,0,0);sprite.rotation.z=0;sprite.scale.set(2.05,1.12,1);material.opacity=opacity;
   }
 }
 buildArms();
+const firstPersonFx=new THREE.Group();
+firstPersonFx.position.set(0,0,-1.18);firstPersonFx.renderOrder=30;camera.add(firstPersonFx);
+const firstPersonGlowTextures=new Map();
+function firstPersonGlowTexture(color){
+  const key=String(color);if(firstPersonGlowTextures.has(key))return firstPersonGlowTextures.get(key);
+  const c=document.createElement("canvas");c.width=c.height=128;const ctx=c.getContext("2d");
+  const col=new THREE.Color(color),r=Math.round(col.r*255),g=Math.round(col.g*255),b=Math.round(col.b*255);
+  const grad=ctx.createRadialGradient(64,64,4,64,64,64);
+  grad.addColorStop(0,`rgba(${r},${g},${b},.86)`);grad.addColorStop(.24,`rgba(${r},${g},${b},.36)`);
+  grad.addColorStop(1,`rgba(${r},${g},${b},0)`);ctx.fillStyle=grad;ctx.fillRect(0,0,128,128);
+  const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;texture.needsUpdate=true;
+  firstPersonGlowTextures.set(key,texture);return texture;
+}
+function addFirstPersonFxMesh(mesh,kind,total,baseScale=1,spin=0){
+  mesh.renderOrder=31;firstPersonFx.add(mesh);
+  state.fpEffects.push({mesh,kind,time:total,total,baseScale,spin,baseOpacity:mesh.material.opacity||1});
+}
+function addFirstPersonGlow(color,scale,total=.5){
+  const material=new THREE.SpriteMaterial({map:firstPersonGlowTexture(color),transparent:true,depthTest:false,depthWrite:false,
+    blending:THREE.AdditiveBlending,opacity:.62,color:0xffffff,toneMapped:false});
+  const sprite=new THREE.Sprite(material);sprite.position.set(0,0,.02);sprite.scale.set(scale,scale,1);
+  addFirstPersonFxMesh(sprite,"glow",total,scale,-.45);
+}
+function addFirstPersonRing(color,scale,total=.42){
+  const material=new THREE.MeshBasicMaterial({color,transparent:true,depthTest:false,depthWrite:false,
+    side:THREE.DoubleSide,blending:THREE.AdditiveBlending,opacity:.92});
+  const ring=new THREE.Mesh(new THREE.RingGeometry(.34,.43,40),material);ring.position.z=.04;
+  ring.scale.setScalar(scale);addFirstPersonFxMesh(ring,"ring",total,scale,.7);
+}
+function addFirstPersonStreak(color,x,y,angle,width=1.7,total=.26){
+  const material=new THREE.MeshBasicMaterial({color,transparent:true,depthTest:false,depthWrite:false,
+    side:THREE.DoubleSide,blending:THREE.AdditiveBlending,opacity:.9});
+  const streak=new THREE.Mesh(new THREE.PlaneGeometry(1,.045),material);
+  streak.position.set(x,y,.08);streak.rotation.z=angle;streak.scale.set(width,1,1);
+  addFirstPersonFxMesh(streak,"streak",total,width,.0);
+}
+function spawnFirstPersonFx(kind){
+  if(!firstPersonFx)return;
+  if(kind==="basic"){
+    addFirstPersonStreak(0xfff4c2,-.22,.08,-.35,1.55,.24);
+    addFirstPersonStreak(0xffd36a,.24,-.02,.32,1.35,.28);
+  }else if(kind==="combo"){
+    addFirstPersonGlow(0xffb34f,2.4,.74);addFirstPersonRing(0xffd26a,1.05,.52);
+    addFirstPersonStreak(0xfff6d38a,-.36,.18,-.48,2.0,.30);
+    addFirstPersonStreak(0xfff6d38a,.35,.05,.42,2.0,.42);
+    addFirstPersonStreak(0xfff6d38a,-.10,-.12,-.14,2.25,.58);
+  }else if(kind==="rocketPunch"){
+    addFirstPersonGlow(0xff7a3b23,2.6,.55);addFirstPersonStreak(0xfff5a14e,0,.02,0,3.1,.48);
+    addFirstPersonRing(0xfff4c26b,1.28,.44);
+  }else if(kind==="burst"){
+    addFirstPersonGlow(0xffe23e2e,3.3,.72);addFirstPersonRing(0xfff4c26b,1.5,.66);
+    addFirstPersonStreak(0xffe94a34,-.32,.14,-.75,1.8,.58);
+    addFirstPersonStreak(0xfff7d48b,.34,.12,.75,1.8,.58);
+  }else if(kind==="axe"){
+    addFirstPersonGlow(0xffd84b2d,2.8,.64);addFirstPersonRing(0xfff4a142,1.3,.58);
+    addFirstPersonStreak(0xffffc05b,-.22,.1,-.9,2.7,.56);
+    addFirstPersonStreak(0xffff744d,.22,.08,.9,2.2,.68);
+  }else if(kind==="rocket"){
+    addFirstPersonGlow(0xffe56c2c,2.8,.58);addFirstPersonStreak(0xffffd18a,0,0,0,3.6,.52);
+    addFirstPersonRing(0xffffa549,1.1,.42);
+  }else if(kind==="giant"){
+    addFirstPersonGlow(0xffe24b28,4.5,1.08);addFirstPersonRing(0xffffd36a,2.1,.9);
+    addFirstPersonStreak(0xffffe6a4,-.4,.22,-.62,2.8,.78);
+    addFirstPersonStreak(0xffffe6a4,.4,.22,.62,2.8,.92);
+  }else if(kind==="haki"){
+    addFirstPersonGlow(0x5d4de2,3.2,.8);addFirstPersonRing(0x8d6bff,1.72,.72);
+    addFirstPersonStreak(0xc3b4ff,-.38,.1,-.42,2.0,.62);
+    addFirstPersonStreak(0x6fe7ff,.38,.1,.42,2.0,.72);
+  }else if(kind==="dodge"){
+    addFirstPersonStreak(0x8be9ff,0,0,0,3.0,.24);addFirstPersonGlow(0x35cde8,1.9,.26);
+  }
+}
+function clearFirstPersonEffects(){
+  for(const f of state.fpEffects){firstPersonFx.remove(f.mesh);f.mesh.geometry?.dispose();f.mesh.material?.dispose();}
+  state.fpEffects.length=0;
+}
+function updateFirstPersonEffects(dt){
+  for(let i=state.fpEffects.length-1;i>=0;i--){
+    const f=state.fpEffects[i];f.time-=dt;const q=1-clamp(f.time/f.total,0,1);
+    const fade=1-q;f.mesh.material.opacity=f.baseOpacity*fade;
+    if(f.kind==="ring"){
+      f.mesh.scale.setScalar(f.baseScale*(.45+q*1.65));f.mesh.rotation.z+=f.spin*dt;
+    }else if(f.kind==="streak"){
+      f.mesh.scale.x=f.baseScale*(.22+q*1.85);f.mesh.scale.y=1+Math.sin(q*Math.PI)*.65;
+    }else if(f.kind==="glow"){
+      f.mesh.scale.setScalar(f.baseScale*(.62+q*1.38));f.mesh.material.opacity=f.baseOpacity*(1-q)*.78;
+      f.mesh.rotation.z+=f.spin*dt;
+    }
+    if(f.time<=0){firstPersonFx.remove(f.mesh);f.mesh.geometry?.dispose();f.mesh.material?.dispose();state.fpEffects.splice(i,1);}
+  }
+}
+function startFirstPersonAction(name){
+  const clip=FIRST_PERSON_ACTIONS[name];if(!clip)return;
+  const p=state.player;p.fpAction=name;p.fpActionTime=0;p.fpActionDuration=clip.duration;spawnFirstPersonFx(name);
+}
 buildWorld();
 state.playerModel=createPlayerModel();rigActor(state.playerModel);
 scene.add(state.playerModel);
@@ -520,7 +658,10 @@ function syncMarineTexture(map,name){
   // TextureLoader finishes asynchronously.  Copy its image onto clones that
   // were made before the network response so the first spawned wave also
   // renders correctly on slower phones.
-  if(source?.image&&map.image!==source.image){map.image=source.image;map.needsUpdate=true;}
+  // Texture.clone() may share the source image object with the loader.  In
+  // that case the clone updates automatically; only copy for an independent
+  // source created before the asynchronous loader response.
+  if(source?.image&&map.image!==source.image&&map.source!==source.source){map.image=source.image;map.needsUpdate=true;}
 }
 function setMarineSpriteFrame(sprite,map,frame){
   if(!sprite||!map)return;
@@ -636,7 +777,7 @@ function updateCombat(dt){
 }
 function canCast(key,cost=0){
   const p=state.player;
-  if(!state.active||state.paused||p.castTime>0||p.cooldowns[key]>0)return false;
+  if(!state.active||state.paused||p.castTime>0||p.cooldowns[key]>0||p.fpAction)return false;
   if(p.stamina<cost){toast("体力不足",650);return false;}
   return true;
 }
@@ -651,38 +792,38 @@ function areaStrike(point,radius,damage){
 }
 function skill4(){
   if(!canCast("s4",25))return;
-  const p=state.player;p.stamina-=25;p.cooldowns.s4=12;p.castTime=.55;p.castKind="axe";
+  const p=state.player;p.stamina-=25;p.cooldowns.s4=12;p.castTime=.55;p.castKind="axe";startFirstPersonAction("axe");
   const point=p.pos.clone().addScaledVector(playerDirection(),5);point.y=0;
-  pulse(point,C.orange,4.5);
+  pulse(point,C.orange,4.5);burst(point,C.gold,13);
   scheduleCombat(.4,()=>areaStrike(point,4.5,90));
   toast("橡胶·战斧！",850);
 }
 function skill5(){
   if(!canCast("s5",30))return;
   const p=state.player;p.stamina-=30;p.cooldowns.s5=14;
-  p.dodge=.42;p.dodgeDir=playerDirection();p.invuln=.5;
+  p.dodge=.42;p.dodgeDir=playerDirection();p.invuln=.5;startFirstPersonAction("rocket");
   p.rocket={time:.46,last:p.pos.clone(),hits:new Set()};p.castTime=.42;p.castKind="rocket";
-  pulse(p.pos,C.orange,3);toast("橡胶·火箭！",850);
+  pulse(p.pos,C.orange,3);burst(p.pos,C.gold,8);state.shake=.24;toast("橡胶·火箭！",850);
 }
 function ultimate(){
   if(!canCast("ultimate"))return;
   const p=state.player;
   if(p.charge<100){toast("命中敌人积攒大招 · "+Math.floor(p.charge)+"%",900);return;}
-  p.charge=0;p.cooldowns.ultimate=40;p.castTime=1.05;p.castKind="giant";p.invuln=1.1;
+  p.charge=0;p.cooldowns.ultimate=40;p.castTime=1.05;p.castKind="giant";p.invuln=1.1;startFirstPersonAction("giant");
   const point=p.pos.clone().addScaledVector(playerDirection(),7);point.y=0;
   const fist=new THREE.Mesh(new THREE.SphereGeometry(1.65,12,8),toon(C.skin));
   fist.position.copy(point);fist.position.y=7;scene.add(fist);
   state.effects.push({mesh:fist,time:1.05,total:1.05,giant:true});
-  pulse(point,C.gold,7);
+  pulse(point,C.gold,7);burst(point,C.orange,22);
   scheduleCombat(.75,()=>{areaStrike(point,7,230);audio.tone(65,.3,"sawtooth",.05);});
   toast("三档 · 巨人之拳！",1300);
 }
 
 function resetGame(){
-  clearActors();state.combatActions=[];
+  clearActors();clearFirstPersonEffects();state.combatActions=[];
   Object.assign(state,{active:false,paused:false,phase:"assault",time:0,capture:0,defense:30,
     waveClock:0,kills:0,combo:0,maxCombo:0,comboTimer:0,score:0,yaw:0,pitch:-.04,shake:0,gateOpen:0});
-  Object.assign(state.player,{charge:0,castTime:0,castKind:null,rocket:null,hp:300,maxHp:300,stamina:100,haki:30,speed:9.2,dodge:0,invuln:0,buff:0,attackAnim:0,hurtAnim:0});
+  Object.assign(state.player,{charge:0,castTime:0,castKind:null,rocket:null,hp:300,maxHp:300,stamina:100,haki:30,speed:9.2,dodge:0,invuln:0,buff:0,attackAnim:0,hurtAnim:0,fpAction:null,fpActionTime:0,fpActionDuration:0});
   state.player.pos.set(0,1.7,40);
   Object.keys(state.player.cooldowns).forEach(k=>state.player.cooldowns[k]=0);
   state.gate.children[0].position.x=-3.2; state.gate.children[1].position.x=3.2;
@@ -744,6 +885,10 @@ function updatePlayer(dt){
   Object.keys(p.cooldowns).forEach(k=>p.cooldowns[k]=Math.max(0,p.cooldowns[k]-dt));
   p.invuln=Math.max(0,p.invuln-dt); p.buff=Math.max(0,p.buff-dt);
   p.attackAnim=Math.max(0,p.attackAnim-dt*5.5); p.hurtAnim=Math.max(0,p.hurtAnim-dt*5);
+  if(p.fpAction){
+    p.fpActionTime+=dt;
+    if(p.fpActionTime>=p.fpActionDuration){p.fpAction=null;p.fpActionTime=0;p.fpActionDuration=0;}
+  }
   state.comboTimer-=dt; if(state.comboTimer<=0)state.combo=0;
   p.stamina=clamp(p.stamina+dt*(p.buff>0?23:15),0,100);
 
@@ -769,7 +914,7 @@ function updatePlayer(dt){
     camera.position.copy(p.pos);
     camera.position.y=1.74;
     camera.rotation.set(state.pitch,state.yaw,0);
-    arms.visible=true;
+    arms.visible=true;firstPersonFx.visible=true;
   }else{
     const forward=playerDirection();
     const right=playerRightDirection();
@@ -777,6 +922,7 @@ function updatePlayer(dt){
     const lookAhead=p.pos.clone().add(new THREE.Vector3(0,2.15,0)).addScaledVector(forward,13);
     camera.position.copy(cameraAnchor);
     camera.lookAt(lookAhead); arms.visible=false;
+    firstPersonFx.visible=false;
   }
   if(state.shake>0){
     state.shake=Math.max(0,state.shake-dt*2.6);
@@ -797,7 +943,7 @@ function updatePlayer(dt){
 
 function beginDodge(){
   const p=state.player;if(!canCast("dodge",28))return;
-  p.stamina-=28;p.cooldowns.dodge=1.1;p.dodge=.24;p.invuln=.34;
+  p.stamina-=28;p.cooldowns.dodge=1.1;p.dodge=.24;p.invuln=.34;p.castKind="dodge";startFirstPersonAction("dodge");
   let ix=(state.keys.KeyD?1:0)-(state.keys.KeyA?1:0)+state.joy.x;
   let iz=(state.keys.KeyW?1:0)-(state.keys.KeyS?1:0)-state.joy.y;
   const f=playerDirection(),r=playerRightDirection();
@@ -806,34 +952,38 @@ function beginDodge(){
 }
 function attack(){
   const p=state.player;if(!canCast('attack'))return;
-  p.cooldowns.attack=p.buff>0?.18:.34;p.attackAnim=1;
+  p.cooldowns.attack=p.buff>0?.18:.34;p.attackAnim=1;p.castKind="basic";startFirstPersonAction("basic");
   const damage=p.buff>0?31:23; hitCone(damage,4.4,.72);
   audio.tone(170,.07,"square",.035);
 }
 function skill1(){
   const p=state.player;if(!canCast("s1"))return;
-  p.cooldowns.s1=p.buff>0?5.5:8;p.attackAnim=1; state.shake=.14;
+  p.cooldowns.s1=p.buff>0?5.5:8;p.attackAnim=1;p.castKind="combo";startFirstPersonAction("combo");state.shake=.14;
+  pulse(p.pos,C.gold,2.4);burst(p.pos,C.orange,8);
   for(let i=0;i<5;i++)scheduleCombat(i*.075,()=>{p.attackAnim=1;hitCone(15,6.3,.58);audio.tone(210+i*30,.045,"square",.025);});
   toast("连环拳风！",800);
 }
 function skill2(){
   const p=state.player;if(!canCast("s2"))return;
-  p.cooldowns.s2=10;p.attackAnim=1;
+  p.cooldowns.s2=10;p.attackAnim=1;p.castKind="rocketPunch";startFirstPersonAction("rocketPunch");
   const dir=aimDirection(), pos=p.pos.clone().add(new THREE.Vector3(0,-.05,0)).addScaledVector(dir,1.2);
   const m=new THREE.Mesh(new THREE.SphereGeometry(.3,10,8),toon(C.orange,C.orange));
-  m.position.copy(pos);scene.add(m);
+  m.position.copy(pos);m.userData.rocket=true;m.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),dir);
+  const trail=new THREE.Mesh(new THREE.ConeGeometry(.18,.95,10),new THREE.MeshBasicMaterial({color:0xffb04e,transparent:true,opacity:.7,blending:THREE.AdditiveBlending,depthWrite:false}));
+  trail.rotation.x=Math.PI/2;trail.position.z=-.58;m.add(trail);scene.add(m);
   state.projectiles.push({mesh:m,pos:m.position,vel:dir.multiplyScalar(25),life:1.5,owner:"player",damage:62,radius:4,rocket:true});
+  pulse(p.pos,C.orange,2.3);burst(pos,C.gold,7);state.shake=.16;
   audio.tone(280,.14,"sawtooth",.045);toast("冲击飞拳！",800);
 }
 function skill3(){
   const p=state.player;if(!canCast("s3"))return;
-  p.cooldowns.s3=22;p.buff=9;p.hp=clamp(p.hp+35,0,p.maxHp);state.shake=.18;
-  pulse(p.pos,C.red,5);toast("热血爆发：速度与攻击强化！",1400);audio.tone(95,.45,"sawtooth",.05);
+  p.cooldowns.s3=22;p.buff=9;p.castTime=.82;p.castKind="burst";startFirstPersonAction("burst");p.hp=clamp(p.hp+35,0,p.maxHp);state.shake=.18;
+  pulse(p.pos,C.red,5);burst(p.pos,C.gold,14);toast("热血爆发：速度与攻击强化！",1400);audio.tone(95,.45,"sawtooth",.05);
 }
 function useHaki(){
   const p=state.player;if(!canCast("haki")||p.haki<50)return;
-  p.cooldowns.haki=25;p.haki-=50;state.shake=.38;p.invuln=.8;
-  pulse(p.pos,C.purple,11);
+  p.cooldowns.haki=25;p.haki-=50;state.shake=.38;p.invuln=.8;p.castTime=.86;p.castKind="haki";startFirstPersonAction("haki");
+  pulse(p.pos,C.purple,11);burst(p.pos,C.purple,18);
   state.enemies.forEach(e=>{if(!e.dead&&dist2D(e.pos,p.pos)<12){e.stun=e.type==="boss"?1.2:3;damageEnemy(e,e.type==="boss"?55:85,true);}});
   for(let i=state.hazards.length-1;i>=0;i--){const h=state.hazards[i];if(h.type==="line"&&h.time>0){scene.remove(h.mesh);state.hazards.splice(i,1);}}
   toast("震慑领域！",1200);audio.tone(62,.7,"sawtooth",.075);
@@ -867,7 +1017,7 @@ function killEnemy(e){
 }
 function hurtPlayer(amount){
   const p=state.player;if(p.invuln>0||!state.active)return;
-  p.hp-=amount;p.invuln=.42;p.hurtAnim=1;state.shake=.28;state.combo=0;
+  p.hp-=amount;p.invuln=.42;p.hurtAnim=1;p.fpAction=null;p.fpActionTime=0;p.fpActionDuration=0;clearFirstPersonEffects();state.shake=.28;state.combo=0;
   ui.redFlash.classList.remove("hit");void ui.redFlash.offsetWidth;ui.redFlash.classList.add("hit");
   audio.tone(92,.16,"sawtooth",.055);if(p.hp<=0)finish(false);
 }
@@ -984,7 +1134,8 @@ function updateAlly(dt){
 
 function updateProjectiles(dt){
   for(let i=state.projectiles.length-1;i>=0;i--){
-    const p=state.projectiles[i];p.life-=dt;p.pos.addScaledVector(p.vel,dt);p.mesh.rotation.x+=dt*8;
+    const p=state.projectiles[i];p.life-=dt;p.pos.addScaledVector(p.vel,dt);
+    if(p.mesh.userData.rocket)p.mesh.rotateZ(dt*10);else p.mesh.rotation.x+=dt*8;
     let remove=p.life<=0;
     if(p.owner==="player"){
       for(const e of state.enemies){if(!e.dead&&dist2D(p.pos,e.pos)<1.25){
@@ -1233,7 +1384,7 @@ bindControls();
 function animate(){
   const dt=Math.min(clock.getDelta(),.035);
   if(state.active&&!state.paused){
-    state.time+=dt;updatePlayer(dt);updateCombat(dt);updateEnemies(dt);updateAlly(dt);animateActors(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updatePhase(dt);updateUI();
+    state.time+=dt;updatePlayer(dt);updateCombat(dt);updateEnemies(dt);updateAlly(dt);animateActors(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updateFirstPersonEffects(dt);updatePhase(dt);updateUI();
   }else if(!state.active){
     camera.position.lerp(new THREE.Vector3(15,15,35),.04);camera.lookAt(0,2,-12);
     state.captureMesh.rotation.y+=dt*.3;
