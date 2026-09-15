@@ -50,6 +50,14 @@ const PLAYER_3D_ASSET={
     orientation:Math.PI
   }
 }[playerModelChoice]||null;
+const modelTestStatus=playerModelChoice==="rigged-luffy"?document.createElement("div"):null;
+if(modelTestStatus){
+  modelTestStatus.id="modelTestStatus";
+  modelTestStatus.textContent="3D模型加载中…";
+  ui.hud.append(modelTestStatus);
+}
+let modelTestMessage="3D模型加载中…";
+let modelTestFrames=0,modelTestLastTime=performance.now();
 const playerSpriteTexture=new THREE.TextureLoader().load("./assets/luffy-sprite-atlas.webp");
 playerSpriteTexture.colorSpace=THREE.SRGBColorSpace;
 playerSpriteTexture.wrapS=playerSpriteTexture.wrapT=THREE.RepeatWrapping;
@@ -547,6 +555,7 @@ function loadPlayerGLB(root){
       !["idle","walk","attack"].every(name=>gltf.animations.some(clip=>clip.name.toLowerCase()===name))
     )){
       console.warn("[GLB] rigged-luffy needs a skinned mesh and Idle/Walk/Attack clips");
+      modelTestMessage="模型校验失败 · 已回退原角色";
       return;
     }
     model.name="Luffy_GLTF_Character";
@@ -577,9 +586,11 @@ function loadPlayerGLB(root){
     [root.userData.sprite,root.userData.depthSprite,root.userData.rimSprite].forEach(item=>{if(item)item.visible=false;});
     if(root.userData.shadow)root.userData.shadow.visible=playerModelChoice==="rigged-luffy";
     playPlayer3DAction(root,"idle",true);
+    if(modelTestStatus)modelTestMessage="3D模型已加载";
     toast("3D角色测试资源已加载",900);
   },undefined,error=>{
     console.warn("[GLB] player model fallback:",error);
+    if(modelTestStatus)modelTestMessage="模型加载失败 · 已回退原角色";
   });
 }
 function playPlayer3DAction(root,name,force=false){
@@ -1855,6 +1866,15 @@ function animate(){
     state.captureMesh.rotation.y+=dt*.3;
   }
   renderer.render(scene,camera);
+  if(modelTestStatus&&state.active){
+    modelTestFrames++;
+    const now=performance.now(),elapsed=now-modelTestLastTime;
+    if(elapsed>=1000){
+      const fps=Math.round(modelTestFrames*1000/elapsed);
+      modelTestStatus.textContent=`${modelTestMessage} · ${fps}帧/秒${state.mode==="first"?" · 第一视角隐藏身体":""}`;
+      modelTestFrames=0;modelTestLastTime=now;
+    }
+  }
 }
 renderer.setAnimationLoop(animate);
 if("serviceWorker" in navigator){
