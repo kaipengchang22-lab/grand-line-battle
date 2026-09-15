@@ -45,7 +45,7 @@ const playerModelChoice=new URLSearchParams(location.search).get("model");
 const PLAYER_3D_ASSET={
   original:{url:"./assets/models/straw-hat-hero-original.glb?v=3",scale:1.85,y:0,orientation:0},
   "rigged-luffy":{
-    url:"./assets/models/luffy-semirealistic-rigged-animated.glb?v=1",scale:.6,y:.51,
+    url:"./assets/models/luffy-semirealistic-rigged-animated.glb?v=1",scale:.78,y:.663,
     // This GLB faces -Z; the existing sprite root faces +Z.
     orientation:Math.PI
   }

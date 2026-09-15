@@ -20,7 +20,7 @@ h1 span{color:var(--orange)}
 .title-card small{display:block;color:#92b9c3;font-size:11px}
 
 #hud{position:fixed;inset:0;z-index:5;pointer-events:none}
-#modelTestStatus{position:fixed;top:calc(73px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));z-index:8;padding:4px 8px;border-radius:7px;background:rgba(8,29,42,.78);color:#e5fbff;font:600 11px/1.4 sans-serif;white-space:nowrap}
+#modelTestStatus{position:fixed;top:calc(73px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:8;padding:4px 8px;border-radius:7px;background:rgba(8,29,42,.78);color:#e5fbff;font:600 11px/1.4 sans-serif;white-space:nowrap}
 .topbar{position:absolute;top:max(10px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right));display:grid;grid-template-columns:minmax(205px,30vw) 1fr auto;align-items:start;gap:12px}
 .player-card{display:flex;gap:8px;align-items:center;padding:7px 10px 7px 7px;background:var(--glass);border:1px solid rgba(142,231,242,.35);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .portrait{width:42px;height:42px;display:grid;place-items:center;flex:0 0 auto;border-radius:50%;background:linear-gradient(145deg,var(--orange),#b62f35);border:2px solid #ffd29d;font-weight:1000;font-size:20px}
