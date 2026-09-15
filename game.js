@@ -226,7 +226,8 @@ async function loadLuffySpineAsset(){
     new THREE.TextureLoader().load(LuffySpineAsset.image,texture=>{
       texture.colorSpace=THREE.SRGBColorSpace;texture.magFilter=THREE.LinearFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;
       state.playerModel.userData.spineAsset.texture=texture;
-      attachLuffySpineCutout(state.playerModel,texture);
+      // Keep the complete action atlas visible: this experimental cutout sheet
+      // is retained as source data but is not yet production-aligned.
     },undefined,error=>console.warn("[Spine] Luffy attachment image fallback:",error));
   }catch(error){
     console.warn("[Spine] Luffy asset fallback:",error);
@@ -516,7 +517,7 @@ function createPlayerModel(){
   g.userData.sprite=sprite;g.userData.depthSprite=depthSprite;g.userData.shadow=shadow;
   g.userData.spriteAction="idle";g.userData.facing=1;
   g.userData.rimSprite=rimSprite;
-  setupSpineStyleRig(g,sprite,depthSprite,rimSprite,"luffy",true);
+  setupSpineStyleRig(g,sprite,depthSprite,rimSprite,"luffy",false);
   return g;
 }
 
