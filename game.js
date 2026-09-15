@@ -56,6 +56,30 @@ firstPersonTexture.wrapS=firstPersonTexture.wrapT=THREE.RepeatWrapping;
 firstPersonTexture.magFilter=THREE.LinearFilter;
 firstPersonTexture.minFilter=THREE.LinearMipmapLinearFilter;
 firstPersonTexture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+// Marine infantry action atlases.  Each sheet is a 4x2 row-major strip with
+// eight transparent frames; per-enemy texture clones keep UV offsets isolated
+// so one soldier changing pose never changes every other soldier on screen.
+const marineAnimSources={
+  walk:"./assets/marine-walk-8f.webp",
+  saberAttack:"./assets/marine-saber-attack-8f.webp",
+  rifleFire:"./assets/marine-rifle-fire-8f.webp"
+};
+const marineAnimTextures={};
+Object.entries(marineAnimSources).forEach(([name,url])=>{
+  const texture=new THREE.TextureLoader().load(url);
+  texture.colorSpace=THREE.SRGBColorSpace;
+  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+  texture.magFilter=THREE.LinearFilter;
+  texture.minFilter=THREE.LinearMipmapLinearFilter;
+  texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+  marineAnimTextures[name]=texture;
+});
+const MARINE_ANIM_CLIPS={
+  idle:{texture:"walk",fps:1,loop:true},
+  walk:{texture:"walk",fps:8,loop:true},
+  saberAttack:{texture:"saberAttack",fps:8,loop:false,hitAt:.5},
+  rifleFire:{texture:"rifleFire",fps:8,loop:false,hitAt:.46}
+};
 const PLAYER_SPRITE_ANIMS={
   idle:{row:0,fps:5,loop:true},walk:{row:1,fps:9,loop:true},
   attack:{row:2,fps:12,loop:false},hurt:{row:3,fps:10,loop:false}
@@ -374,9 +398,15 @@ const STATS={
 };
 function spawnEnemy(type="sword",x=0,z=0){
   const s=STATS[type], model=createMarineModel(type,false);
-  rigActor(model);model.position.set(x,0,z);model.userData.rig.last.copy(model.position); scene.add(model);
+  rigActor(model);
+  if(type==="sword"||type==="gun"||type==="captain")addMarineSprite(model,type);
+  model.position.set(x,0,z);model.userData.rig.last.copy(model.position); scene.add(model);
   const e={id:state.nextId++,type,model,pos:model.position,hp:s.hp,maxHp:s.hp,speed:s.speed,
-    damage:s.damage,range:s.range,attackCd:.5+Math.random(),stun:0,dead:false,bar:addHealthBar(model,2.15,type==="captain"?6.3:5.3)};
+    damage:s.damage,range:s.range,attackCd:.5+Math.random(),stun:0,dead:false,
+    animSprite:model.userData.animSprite||null,animName:"idle",animTime:0,
+    attackActive:false,attackAnimTime:0,attackHitDone:false,attackKind:null,
+    attackTarget:null,attackTargetRef:null,attackTargetAlly:false,hitFlash:0,
+    bar:addHealthBar(model,2.15,type==="captain"?6.3:5.3)};
   state.enemies.push(e); return e;
 }
 function spawnBoss(){
@@ -393,7 +423,7 @@ function spawnAlly(){
 }
 
 function clearActors(){
-  state.enemies.forEach(e=>scene.remove(e.model)); state.enemies=[];
+  state.enemies.forEach(e=>{disposeMarineSprite(e.model);scene.remove(e.model);}); state.enemies=[];
   state.projectiles.forEach(p=>scene.remove(p.mesh)); state.projectiles=[];
   state.hazards.forEach(h=>scene.remove(h.mesh)); state.hazards=[];
   state.effects.forEach(f=>scene.remove(f.mesh)); state.effects=[];
@@ -475,6 +505,86 @@ function rigActor(root){
   }
   root.userData.rig=rig;
 }
+function cloneMarineTexture(base){
+  const map=base.clone();
+  map.needsUpdate=true;
+  map.wrapS=map.wrapT=THREE.RepeatWrapping;
+  map.magFilter=THREE.LinearFilter;
+  map.minFilter=THREE.LinearMipmapLinearFilter;
+  map.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+  return map;
+}
+function syncMarineTexture(map,name){
+  if(!map)return;
+  const source=marineAnimTextures[name];
+  // TextureLoader finishes asynchronously.  Copy its image onto clones that
+  // were made before the network response so the first spawned wave also
+  // renders correctly on slower phones.
+  if(source?.image&&map.image!==source.image){map.image=source.image;map.needsUpdate=true;}
+}
+function setMarineSpriteFrame(sprite,map,frame){
+  if(!sprite||!map)return;
+  const index=clamp(Math.floor(frame),0,7),col=index%4,row=Math.floor(index/4);
+  const padX=.004,padY=.007;
+  map.repeat.set(.25-padX*2,.5-padY*2);
+  map.offset.set(col*.25+padX,row===0?.5+padY:padY);
+  if(sprite.material.map!==map){sprite.material.map=map;sprite.material.needsUpdate=true;}
+}
+function addMarineSprite(model,type){
+  // The generated atlas becomes the readable character silhouette.  Hide the
+  // old low-poly pieces but keep the root, shadow and health bar structure.
+  model.traverse(o=>{if(o.isMesh)o.visible=false;});
+  const maps={};
+  Object.entries(marineAnimTextures).forEach(([name,base])=>{maps[name]=cloneMarineTexture(base);});
+  const material=new THREE.SpriteMaterial({
+    map:maps.walk,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
+    color:0xffffff,toneMapped:false,opacity:1
+  });
+  const sprite=new THREE.Sprite(material);
+  const rootScale=model.scale.x||1;
+  const worldHeight=type==="captain"?6.0:5.35;
+  sprite.center.set(.5,0);
+  sprite.position.set(0,0,0);
+  sprite.scale.set(worldHeight*.74/rootScale,worldHeight/rootScale,1);
+  sprite.renderOrder=3;sprite.frustumCulled=false;model.add(sprite);
+  model.userData.animSprite=sprite;
+  model.userData.animMaps=maps;
+  model.userData.animName="idle";
+  setMarineSpriteFrame(sprite,maps.walk,0);
+}
+function setMarineAnimation(e,name,force=false){
+  const sprite=e.model?.userData.animSprite;if(!sprite)return;
+  const next=MARINE_ANIM_CLIPS[name]?name:"idle";
+  if(!force&&e.animName===next)return;
+  e.animName=next;e.animTime=0;
+  const clip=MARINE_ANIM_CLIPS[next],maps=e.model.userData.animMaps;
+  const map=maps?.[clip.texture]||maps?.walk;
+  syncMarineTexture(map,clip.texture);
+  setMarineSpriteFrame(sprite,map,0);
+}
+function updateMarineSprite(e,dt){
+  const sprite=e.model.userData.animSprite;if(!sprite)return;
+  const name=e.animName||"idle",clip=MARINE_ANIM_CLIPS[name]||MARINE_ANIM_CLIPS.idle;
+  e.animTime=(e.animTime||0)+dt;
+  const frame=name==="idle"?0:(clip.loop
+    ?Math.floor(e.animTime*clip.fps)%8
+    :Math.min(7,Math.floor(e.animTime*clip.fps)));
+  const map=e.model.userData.animMaps?.[clip.texture]||e.model.userData.animMaps?.walk;
+  syncMarineTexture(map,clip.texture);setMarineSpriteFrame(sprite,map,frame);
+  const flashing=(e.hitFlash||0)>0&&Math.floor(state.time*28)%2===0;
+  sprite.material.color.setHex(flashing?0xffb2a8:0xffffff);
+  sprite.material.opacity=flashing?.86:1;
+  if(!clip.loop&&e.animTime>=1){
+    e.attackActive=false;e.attackAnimTime=0;e.attackTargetRef=null;
+    setMarineAnimation(e,"idle",true);
+  }
+}
+function disposeMarineSprite(model){
+  const sprite=model?.userData?.animSprite;if(!sprite)return;
+  Object.values(model.userData.animMaps||{}).forEach(map=>map.dispose());
+  sprite.material.dispose();
+  model.userData.animSprite=null;model.userData.animMaps=null;
+}
 function poseActor(root,dt,moving,attack=0,hurt=0){
   const rig=root.userData.rig;if(!rig)return;
   rig.phase+=dt*(moving?10:2);
@@ -488,6 +598,10 @@ function poseActor(root,dt,moving,attack=0,hurt=0){
 }
 function animateActors(dt){
   for(const a of [...state.enemies,...(state.ally?[state.ally]:[])]){
+    if(a.model.userData.animSprite){
+      updateMarineSprite(a,dt);
+      continue;
+    }
     const rig=a.model.userData.rig;if(!rig)continue;
     const moving=a.pos.distanceToSquared(rig.last)>.00001;
     rig.last.copy(a.pos);
@@ -735,13 +849,15 @@ function hitCone(damage,range,minDot){
 function damageEnemy(e,amount,heavy){
   if(e.dead)return;
   if(e.type==="shield"&&!heavy)amount*=.68;
-  e.hp-=amount;e.model.userData.hurt=1;state.player.charge=clamp(state.player.charge+amount*.12,0,100);state.player.haki=clamp(state.player.haki+amount*.08,0,100);
+  e.hp-=amount;e.model.userData.hurt=1;e.hitFlash=.18;
+  state.player.charge=clamp(state.player.charge+amount*.12,0,100);state.player.haki=clamp(state.player.haki+amount*.08,0,100);
   state.score+=Math.round(amount*(1+state.combo*.025));damageNumber(e.pos,Math.round(amount),heavy);
   if(e.hp<=0)killEnemy(e);
 }
 function killEnemy(e){
   if(e.dead)return;e.dead=true;state.kills++;state.score+=e.type==="boss"?1200:100;
   burst(e.pos,e.type==="boss"?C.gold:C.orange,e.type==="boss"?26:9);
+  disposeMarineSprite(e.model);
   scene.remove(e.model);
   if(e.type==="boss"){
     state.boss=null;ui.bossWrap.classList.add("hidden");
@@ -756,26 +872,69 @@ function hurtPlayer(amount){
   audio.tone(92,.16,"sawtooth",.055);if(p.hp<=0)finish(false);
 }
 
+function beginEnemyAttack(e,target,kind){
+  e.attackActive=true;e.attackAnimTime=0;e.attackHitDone=false;e.attackKind=kind;
+  e.attackTarget=target.clone();
+  e.attackTargetAlly=!!(state.ally&&target===state.ally.pos);
+  e.attackTargetRef=e.attackTargetAlly?state.ally:state.player;
+  if(e.animSprite)setMarineAnimation(e,kind==="gun"?"rifleFire":"saberAttack",true);
+}
+function tickEnemyAttack(e,dt){
+  if(!e.attackActive)return false;
+  e.attackAnimTime+=dt;
+  const hitAt=e.attackKind==="gun"?MARINE_ANIM_CLIPS.rifleFire.hitAt:MARINE_ANIM_CLIPS.saberAttack.hitAt;
+  if(!e.attackHitDone&&e.attackAnimTime>=hitAt){
+    const target=e.attackTargetRef?.pos||e.attackTarget;
+    if(e.attackKind==="gun"){
+      enemyShot(e,target,e.attackTargetAlly);
+    }else if(target&&dist2D(e.pos,target)<e.range+.65){
+      if(e.attackTargetAlly&&state.ally)hurtAlly(e.damage);else hurtPlayer(e.damage);
+    }
+    e.attackHitDone=true;
+  }
+  if(e.attackAnimTime>=1){
+    e.attackActive=false;e.attackAnimTime=0;e.attackTargetRef=null;
+    if(e.animSprite)setMarineAnimation(e,"idle",true);
+  }
+  return true;
+}
+
 function updateEnemies(dt){
   const p=state.player;
   state.enemies.forEach(e=>{
     if(e.dead)return;
-    e.attackCd-=dt;e.stun=Math.max(0,e.stun-dt);
+    e.attackCd-=dt;e.stun=Math.max(0,e.stun-dt);e.hitFlash=Math.max(0,(e.hitFlash||0)-dt);
     e.bar.lookAt(camera.position);const ratio=clamp(e.hp/e.maxHp,0,1);
     e.bar.userData.fill.scale.x=ratio;e.bar.userData.fill.position.x=-(1-ratio)*e.bar.userData.width/2;
-    if(e.stun>0){e.model.rotation.z=Math.sin(state.time*18)*.025;return;}else e.model.rotation.z=0;
+    if(e.stun>0){
+      e.attackActive=false;e.attackAnimTime=0;e.attackTargetRef=null;
+      if(e.animSprite)setMarineAnimation(e,"idle",true);
+      e.model.rotation.z=Math.sin(state.time*18)*.025;return;
+    }else e.model.rotation.z=0;
 
     if(e.type==="boss"){updateBoss(e,dt);return;}
+    if(e.attackActive){tickEnemyAttack(e,dt);return;}
     const target=(state.phase==="defense"&&state.ally&&dist2D(e.pos,state.ally.pos)<dist2D(e.pos,p.pos)+4)?state.ally.pos:p.pos;
     const to=target.clone().sub(e.pos);to.y=0;const d=to.length();if(d>.01)e.model.rotation.y=Math.atan2(to.x,to.z);
     if(e.type==="gun"&&d<18&&d>5){
-      if(e.attackCd<=0){e.model.userData.swing=1;e.attackCd=2.0+Math.random()*.5;enemyShot(e,target);}
+      if(e.attackCd<=0){e.attackCd=2.0+Math.random()*.5;beginEnemyAttack(e,target,"gun");}
+      else if(e.animSprite)setMarineAnimation(e,"idle");
+    }else if(e.type==="gun"&&d<=5){
+      if(d>.01)e.pos.addScaledVector(to.normalize(),-e.speed*dt);
+      if(e.animSprite)setMarineAnimation(e,"walk");
     }else if(d>e.range){
       const crowd=state.enemies.filter(o=>o!==e&&!o.dead&&dist2D(o.pos,e.pos)<1.2).length;
       e.pos.addScaledVector(to.normalize(),e.speed*dt*(crowd?.55:1));
+      if(e.animSprite)setMarineAnimation(e,"walk");
     }else if(e.attackCd<=0){
-      e.model.userData.swing=1;e.attackCd=e.type==="captain"?1.25:1.55;
-      if(state.ally&&target===state.ally.pos)hurtAlly(e.damage);else hurtPlayer(e.damage);
+      e.attackCd=e.type==="captain"?1.25:1.55;
+      if(e.animSprite)beginEnemyAttack(e,target,"melee");
+      else{
+        e.model.userData.swing=1;
+        if(state.ally&&target===state.ally.pos)hurtAlly(e.damage);else hurtPlayer(e.damage);
+      }
+    }else if(e.animSprite){
+      setMarineAnimation(e,"idle");
     }
   });
   state.enemies=state.enemies.filter(e=>!e.dead);
@@ -801,9 +960,9 @@ function updateBoss(e,dt){
     else spawnLineHazard(e.pos,p.pos,1.25,e.phase2?42:32);
   }
 }
-function enemyShot(e,target){
+function enemyShot(e,target,targetAllyOverride=null){
   const pos=e.pos.clone().add(new THREE.Vector3(0,2.8,0));
-  const targetAlly=!!(state.ally&&target===state.ally.pos);
+  const targetAlly=targetAllyOverride===null?!!(state.ally&&target===state.ally.pos):targetAllyOverride;
   const aim=target.clone();aim.y=targetAlly?2.1:1.7;
   const dir=aim.sub(pos).normalize();
   const m=new THREE.Mesh(new THREE.SphereGeometry(.12,7,6),toon(C.gold,C.gold));m.position.copy(pos);scene.add(m);
