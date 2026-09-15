@@ -49,7 +49,7 @@ const PLAYER_3D_ASSET = {
   // The free hand-authored GLB is opt-in until its in-game scale and silhouette
   // are approved.  Open the game with ?model=original to test it.
   testMode:new URLSearchParams(location.search).get("model")==="original",
-  scale:1.28,
+  scale:1.85,
   y:0
 };
 const playerSpriteTexture=new THREE.TextureLoader().load("./assets/luffy-sprite-atlas.webp");
