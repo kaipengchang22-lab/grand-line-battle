@@ -1,0 +1,44 @@
+luffy-parts.webp
+size: 1145, 1374
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+pma: false
+hat
+bounds: 0, 0, 286, 344
+
+head
+bounds: 286, 0, 286, 344
+
+neck
+bounds: 572, 0, 286, 344
+
+torso
+bounds: 859, 0, 286, 344
+
+upper-arm-l
+bounds: 0, 344, 286, 344
+
+forearm-l
+bounds: 286, 344, 286, 344
+
+upper-arm-r
+bounds: 572, 344, 286, 344
+
+forearm-r
+bounds: 859, 344, 286, 344
+
+sash
+bounds: 0, 688, 286, 344
+
+shorts-l
+bounds: 286, 688, 286, 344
+
+shorts-r
+bounds: 572, 688, 286, 344
+
+leg-l
+bounds: 572, 1030, 286, 344
+
+leg-r
+bounds: 859, 1030, 286, 344

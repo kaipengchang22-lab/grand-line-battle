@@ -193,6 +193,69 @@ const state = {
   keys:{}, joy:{x:0,y:0}, shake:0, gateOpen:0, nextId:1
 };
 
+// Runtime-ready Spine data for the player.  The renderer keeps the existing
+// high-resolution action atlas as a safe visual fallback, while this asset
+// drives the hidden cutout rig's bone timelines as soon as the JSON/atlas
+// pair has loaded.  That lets us ship a real Spine pack without risking a
+// blank scene if a mobile browser is offline during startup.
+const LuffySpineAsset={
+  json:"./assets/spine/luffy/luffy.json",
+  atlas:"./assets/spine/luffy/luffy.atlas",
+  image:"./assets/spine/luffy/luffy-parts.webp"
+};
+function spineAnimationDurations(data){
+  const durations={};
+  for(const [name,anim] of Object.entries(data?.animations||{})){
+    let max=0;
+    for(const bone of Object.values(anim?.bones||{})){
+      for(const frames of Object.values(bone||{})){
+        for(const frame of frames||[])max=Math.max(max,Number(frame?.time)||0);
+      }
+    }
+    durations[name]=Math.max(.01,max);
+  }
+  return durations;
+}
+async function loadLuffySpineAsset(){
+  try{
+    const [jsonResponse,atlasResponse,imageResponse]=await Promise.all([fetch(LuffySpineAsset.json),fetch(LuffySpineAsset.atlas),fetch(LuffySpineAsset.image)]);
+    if(!jsonResponse.ok||!atlasResponse.ok||!imageResponse.ok)throw new Error(`HTTP ${jsonResponse.status}/${atlasResponse.status}/${imageResponse.status}`);
+    const data=await jsonResponse.json(),atlas=await atlasResponse.text();
+    if(!data?.bones||!data?.slots||!data?.skins||!data?.animations)throw new Error("invalid Spine skeleton data");
+    state.playerModel.userData.spineAsset={ready:true,data,atlas,image:LuffySpineAsset.image,animations:Object.keys(data.animations),durations:spineAnimationDurations(data),current:"idle",time:0};
+  }catch(error){
+    console.warn("[Spine] Luffy asset fallback:",error);
+  }
+}
+function spineTimedValue(frames,time,key,fallback=0){
+  if(!Array.isArray(frames)||!frames.length)return fallback;
+  if(frames.length===1||time<=Number(frames[0].time||0))return Number(frames[0][key]??fallback);
+  for(let i=1;i<frames.length;i++){
+    const next=frames[i],prev=frames[i-1],t0=Number(prev.time||0),t1=Number(next.time||0);
+    if(time<=t1){
+      const q=t1>t0?clamp((time-t0)/(t1-t0),0,1):1;
+      const eased=prev.curve&&Array.isArray(prev.curve)&&prev.curve.length===4?q:q;
+      return Number(prev[key]??fallback)+(Number(next[key]??fallback)-Number(prev[key]??fallback))*eased;
+    }
+  }
+  return Number(frames[frames.length-1][key]??fallback);
+}
+function applyLuffySpineAnimation(root,name,time){
+  const asset=root?.userData?.spineAsset,rig=root?.userData?.spineRig,anim=asset?.data?.animations?.[name];
+  if(!asset?.ready||!rig||!anim)return;
+  const duration=asset.durations[name]||1,t=((time%duration)+duration)%duration;
+  for(const [boneName,timelines] of Object.entries(anim.bones||{})){
+    const bone=rig.bones[boneName];if(!bone)continue;
+    const rotate=timelines.rotate;
+    if(rotate)bone.rotation.z+=THREE.MathUtils.degToRad(spineTimedValue(rotate,t,"angle",0));
+    const translate=timelines.translate;
+    if(translate){bone.position.x+=spineTimedValue(translate,t,"x",0)*.02;bone.position.y+=spineTimedValue(translate,t,"y",0)*.02;}
+    const scale=timelines.scale;
+    if(scale){bone.scale.x*=spineTimedValue(scale,t,"x",1);bone.scale.y*=spineTimedValue(scale,t,"y",1);}
+  }
+  asset.current=name;asset.time=t;
+}
+
 const audio = {
   ctx:null,
   start(){
@@ -460,9 +523,10 @@ function createPlayerModel(){
 // visual layers later without changing combat code.
 function setupSpineStyleRig(root,main,depth,rim,role="marine"){
   const skeleton=new THREE.Group();skeleton.name="spine-skeleton";skeleton.visible=false;root.add(skeleton);
-  const bones={root:skeleton,pelvis:new THREE.Group(),torso:new THREE.Group(),chest:new THREE.Group(),head:new THREE.Group(),armL:new THREE.Group(),armR:new THREE.Group(),legL:new THREE.Group(),legR:new THREE.Group()};
-  skeleton.add(bones.pelvis);bones.pelvis.add(bones.torso);bones.torso.add(bones.chest);bones.chest.add(bones.head);
-  bones.torso.add(bones.armL,bones.armR);bones.pelvis.add(bones.legL,bones.legR);
+  const bones={root:skeleton,pelvis:new THREE.Group(),torso:new THREE.Group(),chest:new THREE.Group(),neck:new THREE.Group(),head:new THREE.Group(),hat:new THREE.Group(),armL:new THREE.Group(),forearmL:new THREE.Group(),armR:new THREE.Group(),forearmR:new THREE.Group(),sash:new THREE.Group(),shortsL:new THREE.Group(),legL:new THREE.Group(),shortsR:new THREE.Group(),legR:new THREE.Group()};
+  skeleton.add(bones.pelvis);bones.pelvis.add(bones.torso,bones.sash,bones.shortsL,bones.shortsR);
+  bones.torso.add(bones.chest,bones.armL,bones.armR);bones.chest.add(bones.neck);bones.neck.add(bones.head);bones.head.add(bones.hat);
+  bones.armL.add(bones.forearmL);bones.armR.add(bones.forearmR);bones.shortsL.add(bones.legL);bones.shortsR.add(bones.legR);
   root.userData.spineRig={role,bones,drawOrder:["rim","depth","main"],attachments:{main,depth,rim},base:{
     mainPos:main?.position.clone()||new THREE.Vector3(),mainScale:main?.scale.clone()||new THREE.Vector3(1,1,1),
     depthPos:depth?.position.clone()||new THREE.Vector3(),depthScale:depth?.scale.clone()||new THREE.Vector3(1,1,1),
@@ -529,6 +593,12 @@ function updatePlayerSprite(moving,p,inputX){
   if(groundShadow){const step=moving?Math.abs(Math.sin(state.time*9))*.08:0;groundShadow.scale.set(1.02+step,.72-step*.35,1);}
   const poseProgress=p.hurtAnim>0?1-p.hurtAnim:(p.attackAnim>0?1-p.attackAnim:(p.castTime>0?1-clamp(p.castTime/.9,0,1):0));
   updateSpineStyleRig(state.playerModel,{moving,action:p.hurtAnim>0?"hurt":(p.attackAnim>0||p.castTime>0?"attack":(moving?"walk":"idle")),progress:poseProgress,look:state.yaw,flash:p.hurtAnim>0,buff:p.buff>0});
+  const spineName=p.hurtAnim>0?"hurt":(p.attackAnim>0||p.castTime>0?({combo:"skill_combo",rocketPunch:"skill_rocket",rocket:"skill_rocket",burst:"skill_haki",haki:"skill_haki",giant:"ultimate_giant_punch"}[p.castKind]||"attack"):(moving?"walk":"idle"));
+  const spineAsset=state.playerModel.userData.spineAsset;
+  if(spineAsset?.ready){
+    const spineTime=(spineName==="idle"||spineName==="walk")?state.time:poseProgress*(spineAsset.durations[spineName]||1);
+    applyLuffySpineAnimation(state.playerModel,spineName,spineTime);
+  }
   state.playerModel.userData.spriteAction=action;
 }
 
@@ -817,6 +887,7 @@ function firstPersonCameraKick(p){
 buildWorld();
 state.playerModel=createPlayerModel();rigActor(state.playerModel);
 scene.add(state.playerModel);
+loadLuffySpineAsset();
 
 
 function rigActor(root){
