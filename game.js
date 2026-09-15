@@ -56,6 +56,10 @@ firstPersonTexture.wrapS=firstPersonTexture.wrapT=THREE.RepeatWrapping;
 firstPersonTexture.magFilter=THREE.LinearFilter;
 firstPersonTexture.minFilter=THREE.LinearMipmapLinearFilter;
 firstPersonTexture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+// A second UV-isolated copy lets the first-person atlas cross-fade between
+// adjacent hand-drawn poses instead of snapping on a single frame boundary.
+const firstPersonBlendTexture=firstPersonTexture.clone();
+firstPersonBlendTexture.needsUpdate=true;
 // Marine infantry action atlases.  Each sheet is a 4x2 row-major strip with
 // eight transparent frames; per-enemy texture clones keep UV offsets isolated
 // so one soldier changing pose never changes every other soldier on screen.
@@ -154,6 +158,27 @@ function makeIceTexture(){
   texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.repeat.set(4,7);
   texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());return texture;
 }
+function makeSeaTexture(){
+  const canvas=document.createElement("canvas");canvas.width=canvas.height=512;
+  const ctx=canvas.getContext("2d");
+  const grad=ctx.createLinearGradient(0,0,512,512);
+  grad.addColorStop(0,"#0d4b72");grad.addColorStop(.45,"#196c92");grad.addColorStop(1,"#0a385d");
+  ctx.fillStyle=grad;ctx.fillRect(0,0,512,512);
+  ctx.lineCap="round";
+  for(let i=0;i<42;i++){
+    const y=(i*47)%512,x=(i*83)%512,len=46+(i%8)*18;
+    ctx.strokeStyle=i%3?"rgba(154,232,244,.22)":"rgba(226,252,255,.38)";
+    ctx.lineWidth=i%4?2:3;ctx.beginPath();ctx.moveTo(x,y);
+    ctx.quadraticCurveTo(x+len*.45,y-7-(i%3)*3,x+len,y+((i%5)-2)*4);ctx.stroke();
+  }
+  for(let i=0;i<70;i++){
+    const x=(i*71)%512,y=(i*113)%512,r=1+(i%3);
+    ctx.fillStyle="rgba(201,250,255,.28)";ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+  }
+  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
+  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;texture.repeat.set(3.5,4.5);
+  texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());return texture;
+}
 function seeded(n) { return ((Math.sin(n*999.41)*43758.5453)%1+1)%1; }
 function dist2D(a,b){ const dx=a.x-b.x, dz=a.z-b.z; return Math.hypot(dx,dz); }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
@@ -191,9 +216,20 @@ function buildWorld(){
   sun.position.set(-28,45,30); sun.castShadow=true;
   sun.shadow.mapSize.set(1024,1024); sun.shadow.camera.left=-55; sun.shadow.camera.right=55;
   sun.shadow.camera.top=70; sun.shadow.camera.bottom=-70; sun.shadow.bias=-.0008; scene.add(sun);
+  const rim=new THREE.DirectionalLight(0x7cccf4,.72);rim.position.set(36,22,-44);scene.add(rim);
+  const fortressLamp=new THREE.PointLight(0xffb04d,1.8,38,2);fortressLamp.position.set(0,10,-61);scene.add(fortressLamp);
 
-  const sea=add(world,new THREE.PlaneGeometry(180,210),standard(0x287ca0,.65,.05),0,-.42,-12,-Math.PI/2);
+  const seaMaterial=standard(0x287ca0,.65,.05);seaMaterial.map=makeSeaTexture();
+  const sea=add(world,new THREE.PlaneGeometry(180,210),seaMaterial,0,-.42,-12,-Math.PI/2);
   sea.receiveShadow=false;
+  const waterWaves=[];
+  for(let i=0;i<18;i++){
+    const wave=add(world,new THREE.PlaneGeometry(12+(i%4)*7,.035),new THREE.MeshBasicMaterial({
+      color:i%3?0x89e1ef:0xd1faff,transparent:true,opacity:.14+(i%4)*.025,
+      blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide
+    }),((seeded(1200+i)*2-1)*62),-.34,(seeded(1310+i)*2-1)*78-7,-Math.PI/2,0,(seeded(1420+i)*2-1)*.18);
+    wave.userData.wavePhase=seeded(1500+i)*Math.PI*2;wave.userData.waveBaseX=wave.position.x;waterWaves.push(wave);
+  }
   const iceMaterial=standard(C.ice,.76,.025);iceMaterial.map=makeIceTexture();
   const ice=add(world,new THREE.PlaneGeometry(82,126,12,16),iceMaterial,0,0,-5,-Math.PI/2);
   ice.receiveShadow=true;
@@ -206,10 +242,26 @@ function buildWorld(){
       new THREE.LineBasicMaterial({color:0x5eb0c4,transparent:true,opacity:.55}));
     world.add(line);
   }
+  for(let i=0;i<20;i++){
+    const x=(seeded(300+i)*2-1)*37,z=(seeded(360+i)*2-1)*57-4,r=.32+seeded(420+i)*.7;
+    const facet=add(world,new THREE.CylinderGeometry(r,r*.92,.08,6),toon(i%2?0xd8f7fb:0x8bd4df),x,.045,z,0,seeded(480+i)*Math.PI,0);
+    facet.scale.z=.55+seeded(520+i)*.5;facet.castShadow=true;facet.receiveShadow=true;
+  }
 
   const quayMat=standard(0x73909a,.9,.02);
   add(world,new THREE.BoxGeometry(5,2.5,126),quayMat,-43,-.1,-5);
   add(world,new THREE.BoxGeometry(5,2.5,126),quayMat,43,-.1,-5);
+  for(const side of [-1,1]){
+    add(world,new THREE.BoxGeometry(.42,.18,124),toon(0x9bbbc1),side*40.45,1.22,-5);
+    for(let i=0;i<10;i++)add(world,new THREE.CylinderGeometry(.18,.24,.8,8),toon(0x4d6671),side*40.35,.38,51-i*12);
+  }
+  const foamMat=new THREE.MeshBasicMaterial({color:0xd8fbff,transparent:true,opacity:.48,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  const foam=[];
+  foam.push(add(world,new THREE.PlaneGeometry(78,.32),foamMat,0,-.26,57.8,-Math.PI/2));
+  foam.push(add(world,new THREE.PlaneGeometry(78,.32),foamMat,0,-.26,-67.8,-Math.PI/2));
+  foam.push(add(world,new THREE.PlaneGeometry(.32,116),foamMat,-41.1,-.26,-5,-Math.PI/2));
+  foam.push(add(world,new THREE.PlaneGeometry(.32,116),foamMat,41.1,-.26,-5,-Math.PI/2));
+  foam.forEach((f,i)=>{f.userData.wavePhase=i*1.7;f.userData.waveBaseX=f.position.x;});
 
   const wall=toon(0xb5cbd0);
   add(world,new THREE.BoxGeometry(82,9,5),wall,0,4.5,-67);
@@ -218,6 +270,7 @@ function buildWorld(){
   add(world,new THREE.CylinderGeometry(10,13,6,8),toon(0x8caeb7),0,11,-70);
   const emblem=add(world,new THREE.TorusGeometry(3.2,.55,8,24),toon(C.gold),0,11,-64.75,Math.PI/2);
   emblem.castShadow=false;
+  for(const x of [-32,32])createFortressTower(x);
 
   state.gate = new THREE.Group(); state.gate.position.set(0,0,-64.2); world.add(state.gate);
   add(state.gate,new THREE.BoxGeometry(6.3,10,.9),toon(0x365062),-3.2,5,0);
@@ -248,6 +301,20 @@ function buildWorld(){
     const x=(seeded(600+i)*2-1)*38,z=(seeded(720+i)*2-1)*58-4;
     add(world,new THREE.TetrahedronGeometry(.35+seeded(800+i)*.75,0),toon(i%3?0xd8f7fb:0x75c8d8),x,.18,z,0,seeded(910+i)*Math.PI,0);
   }
+  world.userData.environment={sea,seaMap:seaMaterial.map,waterWaves,foam,fortressLamp};
+}
+
+function createFortressTower(x){
+  const g=new THREE.Group();g.position.set(x,0,-63.5);world.add(g);
+  add(g,new THREE.CylinderGeometry(3.3,3.8,10,10),toon(0x8daeb8),0,5,0);
+  add(g,new THREE.CylinderGeometry(3.8,3.8,.7,10),toon(0x607f8b),0,10.1,0);
+  add(g,new THREE.ConeGeometry(4.1,2.7,10),toon(0x31586c),0,11.8,0);
+  for(let i=0;i<5;i++){
+    const window=add(g,new THREE.BoxGeometry(.62,1.18,.08),new THREE.MeshBasicMaterial({color:0xffcf70,transparent:true,opacity:.82}),
+      Math.cos(i*Math.PI*2/5)*2.9,6.0,Math.sin(i*Math.PI*2/5)*2.9,0,-i*Math.PI*2/5,0);
+    window.castShadow=false;window.receiveShadow=false;
+  }
+  const lamp=new THREE.PointLight(0xffb34f,.5,10,2);lamp.position.set(0,7,2.6);g.add(lamp);
 }
 
 function createCrate(x,z,barrel){
@@ -272,6 +339,21 @@ function createShip(x,z,rot){
   add(g,new THREE.BoxGeometry(14,2.8,4),toon(0x4b302c),0,1.2,0);
   add(g,new THREE.CylinderGeometry(.16,.22,12,8),toon(0x303743),0,7,0);
   const sail=add(g,new THREE.PlaneGeometry(7,6),toon(0xe9ddd0),0,8,0); sail.material.side=THREE.DoubleSide;
+}
+function updateEnvironment(dt){
+  const env=world.userData.environment;if(!env)return;
+  if(env.seaMap){env.seaMap.offset.x=(env.seaMap.offset.x+dt*.012)%1;env.seaMap.offset.y=(env.seaMap.offset.y+dt*.006)%1;}
+  env.waterWaves?.forEach((wave,i)=>{
+    const q=state.time*.62+wave.userData.wavePhase;
+    wave.position.x=wave.userData.waveBaseX+Math.sin(q)*.85;
+    wave.position.y=-.34+Math.sin(q*1.7)*.018;
+    wave.material.opacity=(.12+(i%4)*.025)*(0.82+Math.sin(q)*.18);
+  });
+  env.foam?.forEach((foam,i)=>{
+    const q=state.time*1.7+foam.userData.wavePhase;
+    foam.material.opacity=.35+Math.sin(q)*.11;foam.scale.x=1+Math.sin(q*1.13)*.035;
+  });
+  if(env.fortressLamp)env.fortressLamp.intensity=1.65+Math.sin(state.time*1.6)*.18;
 }
 
 function createMarineModel(type,boss=false){
@@ -338,6 +420,13 @@ function createMarineModel(type,boss=false){
 
 function createPlayerModel(){
   const g=new THREE.Group();
+  const depthMaterial=new THREE.SpriteMaterial({
+    map:playerSpriteTexture,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
+    color:0x173647,toneMapped:false,opacity:.34
+  });
+  const depthSprite=new THREE.Sprite(depthMaterial);
+  depthSprite.center.set(.5,.08);depthSprite.position.set(-.075,.32,-.08);depthSprite.scale.set(5.52,5.52,1);
+  depthSprite.renderOrder=3;g.add(depthSprite);
   const material=new THREE.SpriteMaterial({
     map:playerSpriteTexture,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
     color:0xffffff,toneMapped:true
@@ -349,7 +438,8 @@ function createPlayerModel(){
     color:0x07131c,transparent:true,opacity:.32,depthWrite:false
   }),0,.035,0,-Math.PI/2);
   shadow.castShadow=false;shadow.receiveShadow=false;
-  g.userData.sprite=sprite;g.userData.spriteAction="idle";g.userData.facing=1;
+  g.userData.sprite=sprite;g.userData.depthSprite=depthSprite;g.userData.shadow=shadow;
+  g.userData.spriteAction="idle";g.userData.facing=1;
   return g;
 }
 
@@ -374,6 +464,13 @@ function updatePlayerSprite(moving,p,inputX){
   sprite.scale.x=Math.abs(sprite.scale.x);
   sprite.material.opacity=p.invuln>0&&Math.floor(state.time*22)%2?.48:1;
   sprite.material.color.setHex(p.buff>0?0xffe7aa:0xffffff);
+  const depth=state.playerModel.userData.depthSprite;
+  if(depth){
+    depth.position.x=sprite.position.x-.075;depth.position.y=sprite.position.y+.005;depth.scale.copy(sprite.scale);
+    depth.material.opacity=sprite.material.opacity*.34;depth.material.color.setHex(p.buff>0?0x5e3c2a:0x173647);
+  }
+  const groundShadow=state.playerModel.userData.shadow;
+  if(groundShadow){const step=moving?Math.abs(Math.sin(state.time*9))*.08:0;groundShadow.scale.set(1.02+step,.72-step*.35,1);}
   state.playerModel.userData.spriteAction=action;
 }
 
@@ -455,15 +552,30 @@ function setFirstPersonFrame(index){
   firstPersonTexture.repeat.set(.25-padX*2,.5-padY*2);
   firstPersonTexture.offset.set(col*.25+padX,row===0?.5+padY:padY);
 }
+function setFirstPersonBlendFrame(index){
+  const col=index%4,row=Math.floor(index/4),padX=.004,padY=.007;
+  firstPersonBlendTexture.repeat.set(.25-padX*2,.5-padY*2);
+  firstPersonBlendTexture.offset.set(col*.25+padX,row===0?.5+padY:padY);
+}
 function buildArms(){
   arms.position.set(0,-.72,-.92);
   const material=new THREE.MeshBasicMaterial({
     map:firstPersonTexture,transparent:true,depthTest:false,depthWrite:false,
     toneMapped:false,opacity:1
   });
+  const blendMaterial=new THREE.MeshBasicMaterial({
+    map:firstPersonBlendTexture,transparent:true,depthTest:false,depthWrite:false,
+    toneMapped:false,opacity:0
+  });
   const sprite=new THREE.Mesh(new THREE.PlaneGeometry(1,1),material);
+  const blendSprite=new THREE.Mesh(new THREE.PlaneGeometry(1,1),blendMaterial);
   sprite.scale.set(2.05,1.12,1);sprite.frustumCulled=false;sprite.renderOrder=22;
+  blendSprite.scale.copy(sprite.scale);blendSprite.frustumCulled=false;blendSprite.renderOrder=23;
   arms.add(sprite);arms.userData.sprite=sprite;setFirstPersonFrame(0);
+  arms.add(blendSprite);arms.userData.blend=blendSprite;setFirstPersonBlendFrame(0);
+}
+function easeInOutCubic(t){
+  const p=clamp(t,0,1);return p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
 }
 function applyFirstPersonPose(sprite,name,progress,frame){
   const p=clamp(progress,0,1),pulse=Math.sin(Math.PI*p);
@@ -495,16 +607,21 @@ function applyFirstPersonPose(sprite,name,progress,frame){
 }
 function updateFirstPersonSprite(p,moving=false){
   const sprite=arms.userData.sprite;if(!sprite)return;
+  const blendSprite=arms.userData.blend;
   const material=sprite.material;
   const blink=p.invuln>0&&Math.floor(state.time*22)%2,opacity=blink?.52:1;
   const hurt=p.hurtAnim>0;
   const action=!hurt&&p.fpAction?FIRST_PERSON_ACTIONS[p.fpAction]:null;
-  let frame=0,progress=0;
+  let frame=0,nextFrame=0,frameBlend=0,progress=0,poseProgress=0;
   if(hurt){
     frame=3;
   }else if(action){
     progress=clamp((p.fpActionTime||0)/Math.max(.001,p.fpActionDuration||action.duration),0,1);
-    const index=Math.min(action.frames.length-1,Math.floor(progress*action.frames.length));frame=action.frames[index];
+    const framePos=progress*Math.max(0,action.frames.length-1);
+    const index=Math.min(action.frames.length-1,Math.floor(framePos));
+    frame=action.frames[index];nextFrame=action.frames[Math.min(action.frames.length-1,index+1)];
+    frameBlend=index===action.frames.length-1?0:framePos-index;
+    poseProgress=easeInOutCubic(progress);
   }else if(p.attackAnim>0||p.castTime>0){
     progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
     if(p.castKind==="giant")frame=6;
@@ -515,14 +632,23 @@ function updateFirstPersonSprite(p,moving=false){
   }
   setFirstPersonFrame(frame);
   if(action&&!hurt){
-    material.opacity=opacity*applyFirstPersonPose(sprite,p.fpAction,progress,frame);
+    const alpha=applyFirstPersonPose(sprite,p.fpAction,poseProgress,frame);
+    if(blendSprite){
+      setFirstPersonBlendFrame(nextFrame);blendSprite.position.copy(sprite.position);
+      blendSprite.rotation.copy(sprite.rotation);blendSprite.scale.copy(sprite.scale);
+      blendSprite.material.opacity=opacity*alpha*frameBlend;
+    }
+    material.opacity=opacity*alpha*(1-frameBlend);
   }else if(hurt){
+    if(blendSprite)blendSprite.material.opacity=0;
     sprite.position.set(0,-.06,.02);sprite.rotation.z=(1-p.hurtAnim)*.10;sprite.scale.set(1.92,1.22,1);material.opacity=opacity;
   }else if(p.attackAnim>0||p.castTime>0){
+    if(blendSprite)blendSprite.material.opacity=0;
     const punch=clamp(progress,0,1),giant=frame===6;
     sprite.position.set(.06+punch*.08,.02+punch*.05,0);sprite.rotation.z=0;
     sprite.scale.set(giant?2.36:2.12,giant?1.72:1.26,1);material.opacity=opacity*(.86+punch*.14);
   }else{
+    if(blendSprite)blendSprite.material.opacity=0;
     sprite.position.set(0,0,0);sprite.rotation.z=0;sprite.scale.set(2.05,1.12,1);material.opacity=opacity;
   }
 }
@@ -622,6 +748,14 @@ function startFirstPersonAction(name){
   const clip=FIRST_PERSON_ACTIONS[name];if(!clip)return;
   const p=state.player;p.fpAction=name;p.fpActionTime=0;p.fpActionDuration=clip.duration;spawnFirstPersonFx(name);
 }
+function firstPersonCameraKick(p){
+  if(p.hurtAnim>0)return {pitch:.045*p.hurtAnim,yaw:.018*p.hurtAnim,roll:.035*p.hurtAnim};
+  if(!p.fpAction)return {pitch:0,yaw:0,roll:0};
+  const t=clamp((p.fpActionTime||0)/Math.max(.001,p.fpActionDuration||1),0,1);
+  const pulse=Math.sin(Math.PI*t),snap=Math.sin(Math.PI*clamp(t*1.35,0,1));
+  const strength={basic:.018,combo:.026,rocketPunch:.035,burst:.022,axe:.032,rocket:.04,giant:.06,haki:.045,dodge:.012}[p.fpAction]||.02;
+  return {pitch:strength*(.35*pulse+.65*snap),yaw:Math.sin(t*Math.PI*2)*strength*.38,roll:Math.sin(t*Math.PI)*strength*.72};
+}
 buildWorld();
 state.playerModel=createPlayerModel();rigActor(state.playerModel);
 scene.add(state.playerModel);
@@ -688,7 +822,20 @@ function addMarineSprite(model,type){
   sprite.position.set(0,0,0);
   sprite.scale.set(worldHeight*.74/rootScale,worldHeight/rootScale,1);
   sprite.renderOrder=3;sprite.frustumCulled=false;model.add(sprite);
+  const depthMaterial=new THREE.SpriteMaterial({
+    map:maps.walk,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
+    color:0x132f43,toneMapped:false,opacity:.32
+  });
+  const depthSprite=new THREE.Sprite(depthMaterial);
+  depthSprite.center.set(.5,0);depthSprite.position.set(-.09,.04,-.07);
+  depthSprite.scale.copy(sprite.scale);depthSprite.renderOrder=2;depthSprite.frustumCulled=false;model.add(depthSprite);
+  const shadow=add(model,new THREE.CircleGeometry(.92,28),new THREE.MeshBasicMaterial({
+    color:0x07131c,transparent:true,opacity:type==="captain"?.34:.25,depthWrite:false
+  }),0,.045,0,-Math.PI/2);
+  shadow.scale.set(type==="captain"?1.45:1.2,.62,1);shadow.castShadow=false;shadow.receiveShadow=false;shadow.renderOrder=1;
   model.userData.animSprite=sprite;
+  model.userData.animDepthSprite=depthSprite;
+  model.userData.animShadow=shadow;
   model.userData.animMaps=maps;
   model.userData.animName="idle";
   setMarineSpriteFrame(sprite,maps.walk,0);
@@ -701,6 +848,8 @@ function setMarineAnimation(e,name,force=false){
   const clip=MARINE_ANIM_CLIPS[next],maps=e.model.userData.animMaps;
   const map=maps?.[clip.texture]||maps?.walk;
   syncMarineTexture(map,clip.texture);
+  const depth=e.model.userData.animDepthSprite;
+  if(depth){depth.material.map=map;depth.material.needsUpdate=true;}
   setMarineSpriteFrame(sprite,map,0);
 }
 function updateMarineSprite(e,dt){
@@ -711,8 +860,22 @@ function updateMarineSprite(e,dt){
     ?Math.floor(e.animTime*clip.fps)%8
     :Math.min(7,Math.floor(e.animTime*clip.fps)));
   const map=e.model.userData.animMaps?.[clip.texture]||e.model.userData.animMaps?.walk;
-  syncMarineTexture(map,clip.texture);setMarineSpriteFrame(sprite,map,frame);
+  syncMarineTexture(map,clip.texture);
   const flashing=(e.hitFlash||0)>0&&Math.floor(state.time*28)%2===0;
+  const depth=e.model.userData.animDepthSprite;
+  if(depth&&depth.material.map!==map){depth.material.map=map;depth.material.needsUpdate=true;}
+  const phase=e.animTime*(name==="walk"?Math.PI*2*1.05:Math.PI*1.25);
+  const moving=name==="walk",actionPulse=name==="saberAttack"||name==="rifleFire"?Math.sin(Math.PI*clamp(e.animTime,0,1)):0;
+  sprite.position.y=(moving?Math.abs(Math.sin(phase))*.075:actionPulse*.045);
+  sprite.position.x=actionPulse>0?Math.sin(Math.PI*clamp(e.animTime,0,1))*.055:0;
+  sprite.rotation.z=moving?Math.sin(phase)*.018:actionPulse*.035;
+  if(depth){
+    depth.position.x=sprite.position.x-.09;depth.position.y=sprite.position.y+.04;depth.rotation.copy(sprite.rotation);depth.scale.copy(sprite.scale);
+    depth.material.opacity=(flashing?.86:1)*.32;
+  }
+  const shadow=e.model.userData.animShadow;
+  if(shadow){const lift=moving?Math.abs(Math.sin(phase))*.08:actionPulse*.04;shadow.scale.x=(e.type==="captain"?1.45:1.2)+lift*.8;shadow.scale.y=.62-lift*.25;}
+  setMarineSpriteFrame(sprite,map,frame);
   sprite.material.color.setHex(flashing?0xffb2a8:0xffffff);
   sprite.material.opacity=flashing?.86:1;
   if(!clip.loop&&e.animTime>=1){
@@ -724,7 +887,11 @@ function disposeMarineSprite(model){
   const sprite=model?.userData?.animSprite;if(!sprite)return;
   Object.values(model.userData.animMaps||{}).forEach(map=>map.dispose());
   sprite.material.dispose();
-  model.userData.animSprite=null;model.userData.animMaps=null;
+  const depth=model.userData.animDepthSprite;
+  if(depth){depth.material.dispose();depth.geometry.dispose();}
+  const shadow=model.userData.animShadow;
+  if(shadow){shadow.material.dispose();shadow.geometry.dispose();}
+  model.userData.animSprite=null;model.userData.animDepthSprite=null;model.userData.animShadow=null;model.userData.animMaps=null;
 }
 function poseActor(root,dt,moving,attack=0,hurt=0){
   const rig=root.userData.rig;if(!rig)return;
@@ -913,7 +1080,8 @@ function updatePlayer(dt){
   if(state.mode==="first"){
     camera.position.copy(p.pos);
     camera.position.y=1.74;
-    camera.rotation.set(state.pitch,state.yaw,0);
+    const kick=firstPersonCameraKick(p);
+    camera.rotation.set(state.pitch-kick.pitch,state.yaw+kick.yaw,kick.roll);
     arms.visible=true;firstPersonFx.visible=true;
   }else{
     const forward=playerDirection();
@@ -1384,7 +1552,7 @@ bindControls();
 function animate(){
   const dt=Math.min(clock.getDelta(),.035);
   if(state.active&&!state.paused){
-    state.time+=dt;updatePlayer(dt);updateCombat(dt);updateEnemies(dt);updateAlly(dt);animateActors(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updateFirstPersonEffects(dt);updatePhase(dt);updateUI();
+    state.time+=dt;updateEnvironment(dt);updatePlayer(dt);updateCombat(dt);updateEnemies(dt);updateAlly(dt);animateActors(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updateFirstPersonEffects(dt);updatePhase(dt);updateUI();
   }else if(!state.active){
     camera.position.lerp(new THREE.Vector3(15,15,35),.04);camera.lookAt(0,2,-12);
     state.captureMesh.rotation.y+=dt*.3;
