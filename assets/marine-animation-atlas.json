@@ -1,0 +1,26 @@
+{
+  "character": "marine-infantry",
+  "layout": "row-major",
+  "columns": 4,
+  "rows": 2,
+  "frameCount": 8,
+  "defaultFps": 8,
+  "cellSize": "25% x 50%",
+  "animations": {
+    "walk": {
+      "file": "marine-walk-8f.webp",
+      "loop": true,
+      "frames": [0, 1, 2, 3, 4, 5, 6, 7]
+    },
+    "saberAttack": {
+      "file": "marine-saber-attack-8f.webp",
+      "loop": false,
+      "frames": [0, 1, 2, 3, 4, 5, 6, 7]
+    },
+    "rifleFire": {
+      "file": "marine-rifle-fire-8f.webp",
+      "loop": false,
+      "frames": [0, 1, 2, 3, 4, 5, 6, 7]
+    }
+  }
+}
