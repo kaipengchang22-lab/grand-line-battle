@@ -45,9 +45,11 @@ const mats = new Map();
 // is a technical skeleton test and must not silently replace the polished
 // sprite character on players' phones.
 const PLAYER_3D_ASSET = {
-  url:"./assets/models/luffy-rigged-prototype.glb",
-  testMode:new URLSearchParams(location.search).get("model")==="prototype",
-  scale:1,
+  url:"./assets/models/straw-hat-hero-original.glb",
+  // The free hand-authored GLB is opt-in until its in-game scale and silhouette
+  // are approved.  Open the game with ?model=original to test it.
+  testMode:new URLSearchParams(location.search).get("model")==="original",
+  scale:1.28,
   y:0
 };
 const playerSpriteTexture=new THREE.TextureLoader().load("./assets/luffy-sprite-atlas.webp");
