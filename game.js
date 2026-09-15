@@ -420,6 +420,13 @@ function createMarineModel(type,boss=false){
 
 function createPlayerModel(){
   const g=new THREE.Group();
+  const rimMaterial=new THREE.SpriteMaterial({
+    map:playerSpriteTexture,transparent:true,alphaTest:.02,depthTest:true,depthWrite:false,
+    color:0x76dcff,toneMapped:false,opacity:.22,blending:THREE.AdditiveBlending
+  });
+  const rimSprite=new THREE.Sprite(rimMaterial);
+  rimSprite.center.set(.5,.08);rimSprite.position.set(.08,.34,-.14);rimSprite.scale.set(5.58,5.58,1);
+  rimSprite.renderOrder=2;g.add(rimSprite);
   const depthMaterial=new THREE.SpriteMaterial({
     map:playerSpriteTexture,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
     color:0x173647,toneMapped:false,opacity:.34
@@ -440,7 +447,56 @@ function createPlayerModel(){
   shadow.castShadow=false;shadow.receiveShadow=false;
   g.userData.sprite=sprite;g.userData.depthSprite=depthSprite;g.userData.shadow=shadow;
   g.userData.spriteAction="idle";g.userData.facing=1;
+  g.userData.rimSprite=rimSprite;
+  setupSpineStyleRig(g,sprite,depthSprite,rimSprite,"luffy");
   return g;
+}
+
+// The repository currently contains flattened PNG/WebP atlases rather than
+// exported Spine JSON/atlas files.  This lightweight cutout rig keeps the
+// same authoring idea—root, pelvis, torso, chest, head, arms and legs—while
+// driving the existing art with interpolated bone-like transforms.  It is
+// deliberately isolated so exported Spine attachments can replace the three
+// visual layers later without changing combat code.
+function setupSpineStyleRig(root,main,depth,rim,role="marine"){
+  const skeleton=new THREE.Group();skeleton.name="spine-skeleton";skeleton.visible=false;root.add(skeleton);
+  const bones={root:skeleton,pelvis:new THREE.Group(),torso:new THREE.Group(),chest:new THREE.Group(),head:new THREE.Group(),armL:new THREE.Group(),armR:new THREE.Group(),legL:new THREE.Group(),legR:new THREE.Group()};
+  skeleton.add(bones.pelvis);bones.pelvis.add(bones.torso);bones.torso.add(bones.chest);bones.chest.add(bones.head);
+  bones.torso.add(bones.armL,bones.armR);bones.pelvis.add(bones.legL,bones.legR);
+  root.userData.spineRig={role,bones,drawOrder:["rim","depth","main"],attachments:{main,depth,rim},base:{
+    mainPos:main?.position.clone()||new THREE.Vector3(),mainScale:main?.scale.clone()||new THREE.Vector3(1,1,1),
+    depthPos:depth?.position.clone()||new THREE.Vector3(),depthScale:depth?.scale.clone()||new THREE.Vector3(1,1,1),
+    rimPos:rim?.position.clone()||new THREE.Vector3(),rimScale:rim?.scale.clone()||new THREE.Vector3(1,1,1)
+  }};
+}
+function updateSpineStyleRig(root,{moving=false,action="idle",progress=0,look=0,flash=false,buff=false}={}){
+  const rig=root.userData.spineRig;if(!rig)return;
+  const b=rig.bones,p=clamp(progress,0,1),step=state.time*(moving?8.5:2.2),walkWave=Math.sin(step),walkLift=moving?Math.abs(walkWave)*.06:0;
+  const actionPulse=(action!=="idle"&&action!=="walk")?Math.sin(Math.PI*p):0;
+  const sideLook=clamp(Math.sin(look)*.08,-.1,.1);
+  b.pelvis.position.set(0,walkLift*.28,.012);b.pelvis.rotation.z=moving?walkWave*.026:0;b.pelvis.rotation.y=sideLook*.35;
+  b.torso.position.z=.028;b.chest.position.z=.044;b.head.position.z=.062;b.armL.position.z=.036;b.armR.position.z=.048;b.legL.position.z=.018;b.legR.position.z=.02;
+  b.torso.rotation.z=(moving?walkWave*.012:0)+actionPulse*.035;b.torso.rotation.y=sideLook;
+  b.chest.rotation.x=actionPulse*.045;b.chest.rotation.z=-actionPulse*.02;
+  b.head.rotation.y=sideLook*1.25;b.head.rotation.z=(moving?-walkWave*.018:0)-actionPulse*.025;
+  b.armL.rotation.z=(moving?-walkWave*.045:0)-actionPulse*.18;b.armR.rotation.z=(moving?walkWave*.045:0)+actionPulse*.18;
+  b.legL.rotation.x=moving?walkWave*.08:0;b.legR.rotation.x=moving?-walkWave*.08:0;
+
+  const a=rig.attachments,base=rig.base;if(!a.main)return;
+  const stretch=(actionPulse*.075)+(moving?Math.abs(walkWave)*.012:0),lateral=actionPulse*(rig.role==="luffy"?.055:.04);
+  a.main.position.set(base.mainPos.x+lateral,base.mainPos.y+walkLift,base.mainPos.z);
+  a.main.rotation.z=(moving?walkWave*.012:0)+actionPulse*(rig.role==="luffy"?.055:.035);
+  a.main.scale.set(base.mainScale.x*(1+stretch),base.mainScale.y*(1-stretch*.32),base.mainScale.z);
+  if(a.depth){
+    a.depth.position.set(base.depthPos.x+lateral-.012,base.depthPos.y+walkLift+.006,base.depthPos.z-.012);
+    a.depth.rotation.copy(a.main.rotation);a.depth.scale.copy(a.main.scale);
+  }
+  if(a.rim){
+    a.rim.position.set(base.rimPos.x+lateral+.012,base.rimPos.y+walkLift+.012,base.rimPos.z-.018);
+    a.rim.rotation.copy(a.main.rotation);a.rim.scale.set(base.rimScale.x*(1+stretch*1.18),base.rimScale.y*(1-stretch*.2),base.rimScale.z);
+    a.rim.material.opacity=flash?.58:(buff?.34:.22);
+    a.rim.material.color.setHex(flash?0xffd5b5:(buff?0xffbe70:0x76dcff));
+  }
 }
 
 function setPlayerSpriteFrame(row,column,flip=false){
@@ -471,6 +527,8 @@ function updatePlayerSprite(moving,p,inputX){
   }
   const groundShadow=state.playerModel.userData.shadow;
   if(groundShadow){const step=moving?Math.abs(Math.sin(state.time*9))*.08:0;groundShadow.scale.set(1.02+step,.72-step*.35,1);}
+  const poseProgress=p.hurtAnim>0?1-p.hurtAnim:(p.attackAnim>0?1-p.attackAnim:(p.castTime>0?1-clamp(p.castTime/.9,0,1):0));
+  updateSpineStyleRig(state.playerModel,{moving,action:p.hurtAnim>0?"hurt":(p.attackAnim>0||p.castTime>0?"attack":(moving?"walk":"idle")),progress:poseProgress,look:state.yaw,flash:p.hurtAnim>0,buff:p.buff>0});
   state.playerModel.userData.spriteAction=action;
 }
 
@@ -829,15 +887,24 @@ function addMarineSprite(model,type){
   const depthSprite=new THREE.Sprite(depthMaterial);
   depthSprite.center.set(.5,0);depthSprite.position.set(-.09,.04,-.07);
   depthSprite.scale.copy(sprite.scale);depthSprite.renderOrder=2;depthSprite.frustumCulled=false;model.add(depthSprite);
+  const rimMaterial=new THREE.SpriteMaterial({
+    map:maps.walk,transparent:true,alphaTest:.02,depthTest:true,depthWrite:false,
+    color:0x76dcff,toneMapped:false,opacity:.22,blending:THREE.AdditiveBlending
+  });
+  const rimSprite=new THREE.Sprite(rimMaterial);
+  rimSprite.center.set(.5,0);rimSprite.position.set(.09,.05,-.14);rimSprite.scale.set(worldHeight*.78/rootScale,worldHeight*1.04/rootScale,1);
+  rimSprite.renderOrder=1;rimSprite.frustumCulled=false;model.add(rimSprite);
   const shadow=add(model,new THREE.CircleGeometry(.92,28),new THREE.MeshBasicMaterial({
     color:0x07131c,transparent:true,opacity:type==="captain"?.34:.25,depthWrite:false
   }),0,.045,0,-Math.PI/2);
   shadow.scale.set(type==="captain"?1.45:1.2,.62,1);shadow.castShadow=false;shadow.receiveShadow=false;shadow.renderOrder=1;
   model.userData.animSprite=sprite;
   model.userData.animDepthSprite=depthSprite;
+  model.userData.animRimSprite=rimSprite;
   model.userData.animShadow=shadow;
   model.userData.animMaps=maps;
   model.userData.animName="idle";
+  setupSpineStyleRig(model,sprite,depthSprite,rimSprite,"marine");
   setMarineSpriteFrame(sprite,maps.walk,0);
 }
 function setMarineAnimation(e,name,force=false){
@@ -850,6 +917,8 @@ function setMarineAnimation(e,name,force=false){
   syncMarineTexture(map,clip.texture);
   const depth=e.model.userData.animDepthSprite;
   if(depth){depth.material.map=map;depth.material.needsUpdate=true;}
+  const rim=e.model.userData.animRimSprite;
+  if(rim){rim.material.map=map;rim.material.needsUpdate=true;}
   setMarineSpriteFrame(sprite,map,0);
 }
 function updateMarineSprite(e,dt){
@@ -864,6 +933,8 @@ function updateMarineSprite(e,dt){
   const flashing=(e.hitFlash||0)>0&&Math.floor(state.time*28)%2===0;
   const depth=e.model.userData.animDepthSprite;
   if(depth&&depth.material.map!==map){depth.material.map=map;depth.material.needsUpdate=true;}
+  const rim=e.model.userData.animRimSprite;
+  if(rim&&rim.material.map!==map){rim.material.map=map;rim.material.needsUpdate=true;}
   const phase=e.animTime*(name==="walk"?Math.PI*2*1.05:Math.PI*1.25);
   const moving=name==="walk",actionPulse=name==="saberAttack"||name==="rifleFire"?Math.sin(Math.PI*clamp(e.animTime,0,1)):0;
   sprite.position.y=(moving?Math.abs(Math.sin(phase))*.075:actionPulse*.045);
@@ -875,6 +946,7 @@ function updateMarineSprite(e,dt){
   }
   const shadow=e.model.userData.animShadow;
   if(shadow){const lift=moving?Math.abs(Math.sin(phase))*.08:actionPulse*.04;shadow.scale.x=(e.type==="captain"?1.45:1.2)+lift*.8;shadow.scale.y=.62-lift*.25;}
+  updateSpineStyleRig(e.model,{moving,action:name,progress:clip.loop?0:clamp(e.animTime,0,1),look:e.model.rotation.y,flash, buff:false});
   setMarineSpriteFrame(sprite,map,frame);
   sprite.material.color.setHex(flashing?0xffb2a8:0xffffff);
   sprite.material.opacity=flashing?.86:1;
@@ -889,9 +961,11 @@ function disposeMarineSprite(model){
   sprite.material.dispose();
   const depth=model.userData.animDepthSprite;
   if(depth){depth.material.dispose();depth.geometry.dispose();}
+  const rim=model.userData.animRimSprite;
+  if(rim){rim.material.dispose();rim.geometry.dispose();}
   const shadow=model.userData.animShadow;
   if(shadow){shadow.material.dispose();shadow.geometry.dispose();}
-  model.userData.animSprite=null;model.userData.animDepthSprite=null;model.userData.animShadow=null;model.userData.animMaps=null;
+  model.userData.animSprite=null;model.userData.animDepthSprite=null;model.userData.animRimSprite=null;model.userData.animShadow=null;model.userData.animMaps=null;
 }
 function poseActor(root,dt,moving,attack=0,hurt=0){
   const rig=root.userData.rig;if(!rig)return;
