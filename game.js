@@ -531,20 +531,20 @@ function setupSpineStyleRig(root,main,depth,rim,role="marine",visible=false){
   bones.armL.add(bones.forearmL);bones.armR.add(bones.forearmR);bones.shortsL.add(bones.legL);bones.shortsR.add(bones.legR);
   // Bind-pose offsets are the local coordinates used by the cutout parts.
   bones.pelvis.position.set(0,.30,0);
-  bones.torso.position.set(0,1.22,0);
-  bones.chest.position.set(0,1.22,0);
-  bones.neck.position.set(0,1.00,0);
-  bones.head.position.set(0,.82,0);
-  bones.hat.position.set(0,.92,0);
+  bones.torso.position.set(0,1.55,0);
+  bones.chest.position.set(0,.55,0);
+  bones.neck.position.set(0,.40,0);
+  bones.head.position.set(0,.38,0);
+  bones.hat.position.set(0,1.15,0);
   bones.armL.position.set(-1.02,1.04,0);
   bones.forearmL.position.set(0,-1.02,0);
   bones.armR.position.set(1.02,1.04,0);
   bones.forearmR.position.set(0,-1.02,0);
   bones.sash.position.set(0,.82,0);
   bones.shortsL.position.set(-.55,.64,0);
-  bones.legL.position.set(0,-.98,0);
+  bones.legL.position.set(0,-.56,0);
   bones.shortsR.position.set(.55,.64,0);
-  bones.legR.position.set(0,-.98,0);
+  bones.legR.position.set(0,-.56,0);
   const bind={};Object.entries(bones).forEach(([name,bone])=>{bind[name]={position:bone.position.clone(),rotation:bone.rotation.clone(),scale:bone.scale.clone()};});
   root.userData.spineRig={role,bones,bind,drawOrder:["rim","depth","main"],attachments:{main,depth,rim},base:{
     mainPos:main?.position.clone()||new THREE.Vector3(),mainScale:main?.scale.clone()||new THREE.Vector3(1,1,1),
@@ -561,27 +561,30 @@ function attachLuffySpineCutout(root,texture){
   const rig=root?.userData?.spineRig;if(!rig||rig.cutoutReady||!texture)return;
   const W=1145,H=1374;
   const defs=[
-    {name:"leg-l",bone:"legL",cell:[572,1030,286,344],size:[.78,1.78],pos:[0,0],order:1},
-    {name:"leg-r",bone:"legR",cell:[859,1030,286,344],size:[.78,1.78],pos:[0,0],order:2},
-    {name:"shorts-l",bone:"shortsL",cell:[286,688,286,344],size:[1.28,1.18],pos:[0,0],order:3},
-    {name:"shorts-r",bone:"shortsR",cell:[572,688,286,344],size:[1.28,1.18],pos:[0,0],order:4},
-    {name:"sash",bone:"sash",cell:[0,688,286,344],size:[2.72,1.04],pos:[0,0],order:5},
-    {name:"torso",bone:"torso",cell:[859,0,286,344],size:[2.55,2.28],pos:[0,0],order:6},
-    {name:"upper-arm-l",bone:"armL",cell:[0,344,286,344],size:[.98,1.52],pos:[0,0],order:7},
-    {name:"upper-arm-r",bone:"armR",cell:[572,344,286,344],size:[.98,1.52],pos:[0,0],order:8},
-    {name:"forearm-l",bone:"forearmL",cell:[286,344,286,344],size:[.82,1.58],pos:[0,0],order:9},
-    {name:"forearm-r",bone:"forearmR",cell:[859,344,286,344],size:[.82,1.58],pos:[0,0],order:10},
-    {name:"neck",bone:"neck",cell:[572,0,286,344],size:[.86,.70],pos:[0,0],order:11},
-    {name:"head",bone:"head",cell:[286,0,286,344],size:[2.18,2.18],pos:[0,.06],order:12},
-    {name:"hat",bone:"hat",cell:[0,0,286,344],size:[3.22,1.52],pos:[0,.38],order:13}
+    {name:"leg-l",bone:"legL",cell:[572,1030,286,344],size:[.78,1.78],center:[.5,.05],pos:[0,0],order:1},
+    {name:"leg-r",bone:"legR",cell:[859,1030,286,344],size:[.78,1.78],center:[.5,.05],pos:[0,0],order:2},
+    // The generated sheet contains one complete shorts piece; using it once
+    // avoids the doubled/ghosted lower body that two full shorts cells cause.
+    {name:"torso",bone:"torso",cell:[859,0,286,344],size:[2.55,2.28],center:[.5,.5],pos:[0,0],order:3},
+    {name:"shorts",bone:"pelvis",cell:[286,688,286,344],size:[2.02,.92],center:[.5,.5],pos:[0,.35],order:4},
+    {name:"sash",bone:"sash",cell:[0,688,286,344],size:[2.18,.90],center:[.84,.15],pos:[.56,0],order:5},
+    {name:"upper-arm-l",bone:"armL",cell:[0,344,286,344],size:[.98,1.52],center:[.82,.08],pos:[0,0],order:6},
+    {name:"upper-arm-r",bone:"armR",cell:[572,344,286,344],size:[.98,1.52],center:[.38,.08],pos:[0,0],order:7},
+    {name:"forearm-l",bone:"forearmL",cell:[286,344,286,344],size:[.82,1.58],center:[.56,.08],pos:[0,0],order:8},
+    {name:"forearm-r",bone:"forearmR",cell:[859,344,286,344],size:[.82,1.58],center:[.42,.08],pos:[0,0],order:9},
+    {name:"neck",bone:"neck",cell:[572,0,286,344],size:[.86,.70],center:[.5,.82],pos:[0,0],order:10},
+    {name:"head",bone:"head",cell:[286,0,286,344],size:[2.18,2.18],center:[.5,.86],pos:[0,0],order:11},
+    {name:"hat",bone:"hat",cell:[0,0,286,344],size:[3.22,1.52],center:[.5,.82],pos:[0,0],order:12}
   ];
   const group=rig.bones.root;group.scale.setScalar(.82);rig.cutoutScale=.82;rig.cutoutSprites={};
   defs.forEach(d=>{
     const [x,y,w,h]=d.cell,map=texture.clone();map.needsUpdate=true;
     map.wrapS=THREE.ClampToEdgeWrapping;map.wrapT=THREE.ClampToEdgeWrapping;
-    map.repeat.set(w/W,h/H);map.offset.set(x/W,1-(y+h)/H);
+    // Inset the UV rectangle by a pixel so LinearFilter never samples the
+    // neighboring cell and creates a stray hat/arm sliver at the edge.
+    const pad=1;map.repeat.set((w-pad*2)/W,(h-pad*2)/H);map.offset.set((x+pad)/W,1-(y+h-pad)/H);
     const material=new THREE.SpriteMaterial({map,transparent:true,alphaTest:.04,depthTest:false,depthWrite:false,color:0xffffff,toneMapped:false});
-    const sprite=new THREE.Sprite(material);sprite.center.set(.5,.5);sprite.position.set(d.pos[0],d.pos[1],.14+d.order*.001);sprite.scale.set(d.size[0],d.size[1],1);sprite.renderOrder=10+d.order;sprite.frustumCulled=false;
+    const sprite=new THREE.Sprite(material);sprite.center.set(d.center?.[0]??.5,d.center?.[1]??.5);sprite.position.set(d.pos[0],d.pos[1],.14+d.order*.001);sprite.scale.set(d.size[0],d.size[1],1);sprite.renderOrder=10+d.order;sprite.frustumCulled=false;
     rig.bones[d.bone]?.add(sprite);rig.cutoutSprites[d.name]=sprite;
   });
   rig.cutoutReady=true;rig.bones.root.visible=true;root.userData.spineCutoutGroup=group;
