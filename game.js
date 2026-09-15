@@ -47,6 +47,15 @@ playerSpriteTexture.offset.set(0,.75);
 playerSpriteTexture.magFilter=THREE.LinearFilter;
 playerSpriteTexture.minFilter=THREE.LinearMipmapLinearFilter;
 playerSpriteTexture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+// A dedicated first-person sheet keeps the camera view logically separate
+// from the third-person full-body atlas.  It is a compact 4x2 WebP with real
+// alpha: idle/walk frames on top, attack/giant-fist/recovery frames below.
+const firstPersonTexture=new THREE.TextureLoader().load("./assets/luffy-firstperson-actions-v2.webp");
+firstPersonTexture.colorSpace=THREE.SRGBColorSpace;
+firstPersonTexture.wrapS=firstPersonTexture.wrapT=THREE.RepeatWrapping;
+firstPersonTexture.magFilter=THREE.LinearFilter;
+firstPersonTexture.minFilter=THREE.LinearMipmapLinearFilter;
+firstPersonTexture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
 const PLAYER_SPRITE_ANIMS={
   idle:{row:0,fps:5,loop:true},walk:{row:1,fps:9,loop:true},
   attack:{row:2,fps:12,loop:false},hurt:{row:3,fps:10,loop:false}
@@ -394,99 +403,55 @@ function clearActors(){
 
 const arms=new THREE.Group();
 camera.add(arms);
-function makeFirstPersonCrop(){
-  const material=new THREE.ShaderMaterial({
-    transparent:true,depthTest:false,depthWrite:false,
-    uniforms:{map:{value:playerSpriteTexture},uvOffset:{value:new THREE.Vector2()},uvScale:{value:new THREE.Vector2()},opacity:{value:1}},
-    vertexShader:"varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}",
-    fragmentShader:"uniform sampler2D map;uniform vec2 uvOffset,uvScale;uniform float opacity;varying vec2 vUv;void main(){vec4 c=texture2D(map,uvOffset+vUv*uvScale);c.a*=opacity;if(c.a<.04)discard;gl_FragColor=c;}"
-  });
-  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1),material);
-  mesh.frustumCulled=false;mesh.renderOrder=20;return mesh;
-}
-function setFirstPersonCrop(mesh,row,column,x,y,w,h,flip=false){
-  const cell=.25,scale=mesh.material.uniforms.uvScale.value,offset=mesh.material.uniforms.uvOffset.value;
-  scale.set((flip?-1:1)*cell*w,cell*h);
-  offset.set(cell*column+cell*(flip?x+w:x),1-(row+1)*cell+cell*(1-y-h));
+function setFirstPersonFrame(index){
+  const col=index%4,row=Math.floor(index/4);
+  // A tiny inset prevents linear filtering from pulling pixels from the
+  // neighboring action cell at the four frame boundaries.
+  const padX=.004,padY=.007;
+  firstPersonTexture.repeat.set(.25-padX*2,.5-padY*2);
+  firstPersonTexture.offset.set(col*.25+padX,row===0?.5+padY:padY);
 }
 function buildArms(){
   arms.position.set(0,-.72,-.92);
-  const left=new THREE.Group(), right=new THREE.Group();
-  // Keep the first-person hands out near the lower corners.  The atlas cells
-  // contain the whole character, so the crop below deliberately samples only
-  // the outside of each forearm; otherwise the vest/torso reads as a second
-  // character in the camera view.
-  left.position.set(-.46,-.05,0); right.position.set(.46,-.05,0); arms.add(left,right);
-  const leftSprite=makeFirstPersonCrop(),rightSprite=makeFirstPersonCrop();
-  leftSprite.scale.set(.68,1.16,1);rightSprite.scale.set(.68,1.16,1);
-  left.add(leftSprite);right.add(rightSprite);
-  const impact=new THREE.Group();impact.position.set(.10,.02,-.06);arms.add(impact);
-  const impactSprite=makeFirstPersonCrop();impactSprite.scale.set(1.55,1.30,1);impactSprite.renderOrder=23;impact.add(impactSprite);impact.visible=false;
-  const kick=new THREE.Group();kick.visible=false;arms.add(kick);
-  const kickSprite=makeFirstPersonCrop();kickSprite.scale.set(1.45,1.45,1);kickSprite.renderOrder=22;kick.add(kickSprite);
-  arms.userData.kick=kick;
-  arms.userData.left=left; arms.userData.right=right;
-  arms.userData.leftSprite=leftSprite;arms.userData.rightSprite=rightSprite;
-  arms.userData.impact=impact;arms.userData.impactSprite=impactSprite;arms.userData.kickSprite=kickSprite;
+  const material=new THREE.MeshBasicMaterial({
+    map:firstPersonTexture,transparent:true,depthTest:false,depthWrite:false,
+    toneMapped:false,opacity:1
+  });
+  const sprite=new THREE.Mesh(new THREE.PlaneGeometry(1,1),material);
+  sprite.scale.set(2.05,1.12,1);sprite.frustumCulled=false;sprite.renderOrder=22;
+  arms.add(sprite);arms.userData.sprite=sprite;setFirstPersonFrame(0);
 }
-function updateFirstPersonSprite(p){
-  const leftGroup=arms.userData.left,rightGroup=arms.userData.right;
-  const left=arms.userData.leftSprite,right=arms.userData.rightSprite;
-  const impact=arms.userData.impact,impactSprite=arms.userData.impactSprite;
-  if(!left||!right||!impact||!impactSprite)return;
-
-  // In first person there is one coherent pair of hands, not two copies of
-  // the full-body atlas cell.  Attack/hurt states replace that pair with a
-  // single action crop so the torso can never be duplicated on screen.
-  const idleFrame=Math.floor(state.time*PLAYER_SPRITE_ANIMS.idle.fps)%4;
+function updateFirstPersonSprite(p,moving=false){
+  const sprite=arms.userData.sprite;if(!sprite)return;
+  const material=sprite.material;
   const attack=p.attackAnim>0||p.castTime>0;
   const hurt=!attack&&p.hurtAnim>0;
   const blink=p.invuln>0&&Math.floor(state.time*22)%2;
   const opacity=blink?.52:1;
-
-  // The old axe cast used a third overlay.  It is useful for the top-down
-  // actor, but would be a second first-person body, so keep it camera-only.
-  if(arms.userData.kick)arms.userData.kick.visible=false;
-  impact.rotation.z=0;
-  impactSprite.material.uniforms.opacity.value=opacity;
-
-  if(attack){
-    leftGroup.visible=false; rightGroup.visible=false; impact.visible=true;
-    const progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
-    const frame=Math.min(3,Math.floor(progress*4));
-    // Each crop is an arm/fist-only window from the generated attack row.
-    // The giant-fist frame is trimmed before the torso starts, avoiding the
-    // duplicate-character artifact while preserving the impact silhouette.
-    const crops=[
-      [2,0,.63,.16,.27,.28],
-      [2,1,.54,.08,.46,.33],
-      [2,2,.00,.06,.53,.47],
-      [2,3,.68,.16,.32,.30]
-    ][frame];
-    setFirstPersonCrop(impactSprite,...crops,false);
-    const punch=clamp(progress,0,1);
-    impact.position.set(.08+punch*.18,.01+punch*.05,-.09-punch*.12);
-    impactSprite.scale.set(frame===2?1.72:1.55,frame===2?1.50:1.25,1);
-    impactSprite.material.uniforms.opacity.value=opacity*(.88+punch*.12);
-  }else if(hurt){
-    leftGroup.visible=false; rightGroup.visible=false; impact.visible=true;
-    const frame=Math.min(3,Math.floor((1-p.hurtAnim)*4));
-    // A single upper-body recoil crop is intentionally centered, so hit
-    // feedback never looks like two disconnected characters.
-    setFirstPersonCrop(impactSprite,3,frame,.12,.08,.70,.52,false);
-    impact.position.set(0,-.06,.02);impact.rotation.z=(1-p.hurtAnim)*.10;
-    impactSprite.scale.set(1.38,1.18,1);
-  }else{
-    leftGroup.visible=true; rightGroup.visible=true; impact.visible=false;
-    // Only the outer forearms/hands are sampled from the idle frame.  The
-    // narrow x windows exclude the red vest, shorts and legs entirely.
-    setFirstPersonCrop(left,0,idleFrame,.30,.14,.068,.45,true);
-    setFirstPersonCrop(right,0,idleFrame,.625,.14,.068,.45,false);
-    left.scale.set(.68,1.16,1);right.scale.set(.68,1.16,1);
-    leftGroup.position.set(-.46,-.05,0);rightGroup.position.set(.46,-.05,0);
-    impact.position.set(.10,.02,-.06);
+  let frame=0,progress=0;
+  if(hurt){
+    frame=3;
+  }else if(attack){
+    progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
+    if(p.castKind==="giant")frame=6;
+    else if(p.castKind==="rocket")frame=5;
+    else frame=[4,5,6,7][Math.min(3,Math.floor(progress*4))];
+  }else if(moving){
+    frame=1+(Math.floor(state.time*8)%2);
   }
-  left.material.uniforms.opacity.value=opacity;right.material.uniforms.opacity.value=opacity;
+  setFirstPersonFrame(frame);
+  material.opacity=opacity;
+  sprite.rotation.z=hurt?(1-p.hurtAnim)*.10:0;
+  if(attack){
+    const punch=clamp(progress,0,1),giant=frame===6;
+    sprite.position.set(.06+punch*.08,.02+punch*.05,0);
+    sprite.scale.set(giant?2.36:2.12,giant?1.72:1.26,1);
+    material.opacity=opacity*(.86+punch*.14);
+  }else if(hurt){
+    sprite.position.set(0,-.06,.02);sprite.scale.set(1.92,1.22,1);
+  }else{
+    sprite.position.set(0,0,0);sprite.scale.set(2.05,1.12,1);
+  }
 }
 buildArms();
 buildWorld();
@@ -706,25 +671,14 @@ function updatePlayer(dt){
   }
   const bob=moving?Math.sin(state.time*11)*.018:0;
   arms.position.y=-.72+bob;
-  const punch=(1-p.attackAnim)*Math.PI;
-  const thrust=p.attackAnim>0?Math.sin(punch)*-.72:0;
-  arms.userData.right.position.z=thrust;
-  arms.userData.right.rotation.x=p.attackAnim>0?-Math.sin(punch)*.22:0;
-  arms.userData.left.position.z=p.buff>0?Math.sin(state.time*8)*-.08:0;
   arms.rotation.z=Math.sin(p.hurtAnim*Math.PI)*.08;
   arms.position.z=-.92+p.hurtAnim*.15;
-  arms.userData.right.scale.setScalar(1);arms.userData.kick.visible=false;
-  if(p.castTime>0){
-    if(p.castKind==="giant"){arms.userData.right.scale.setScalar(1.9);arms.userData.right.position.z=-.4;}
-    else if(p.castKind==="rocket"){arms.userData.left.position.z=-.65;arms.userData.right.position.z=-.65;}
-    else if(p.castKind==="axe"){
-      const q=1-p.castTime/.55;
-      arms.userData.kick.visible=true;arms.userData.kick.position.set(.15,1.2-q*1.7,-.7);
-      arms.userData.kick.rotation.x=-1.2+q*2;
-      const leg=state.playerModel.userData.rig.legs[1];leg.rotation.x=-2.7+q*3.2;
-    }
+  if(p.castTime>0&&p.castKind==="axe"){
+    const q=1-p.castTime/.55;
+    const leg=state.playerModel.userData.rig.legs[1];
+    if(leg)leg.rotation.x=-2.7+q*3.2;
   }
-  updateFirstPersonSprite(p);
+  updateFirstPersonSprite(p,moving);
 }
 
 function beginDodge(){
@@ -1050,9 +1004,18 @@ function bindControls(){
     const onTouchStart=e=>{
       let handled=false;
       for(const t of Array.from(e.changedTouches)){
-        if(isActionTarget(e.target))continue;
-        const inMoveZone=t.clientX<innerWidth*.48&&t.clientY>innerHeight*.30;
-        const inLookZone=t.clientX>=innerWidth*.40&&t.clientY>innerHeight*.12;
+        // TouchEvent.target is shared by the event; use each Touch.target so
+        // a simultaneous button press cannot swallow the other finger.
+        if(isActionTarget(t.target))continue;
+        // Give an element an explicit owner first, then use non-overlapping
+        // screen bands as the fallback.  The old 40–48% overlap let Android
+        // classify a right-hand look touch as a second movement touch.
+        const touchTarget=t.target?.closest?.("#joystick,#lookZone");
+        const targetId=touchTarget?.id;
+        const onJoystick=targetId==="joystick";
+        const onLookZone=targetId==="lookZone";
+        const inMoveZone=onJoystick||(!onLookZone&&t.clientX<innerWidth*.42&&t.clientY>innerHeight*.30);
+        const inLookZone=onLookZone||(!onJoystick&&t.clientX>=innerWidth*.46&&t.clientY>innerHeight*.12);
         if(joyId===null&&inMoveZone){
           joyId=t.identifier;joyRect=ui.joystick.getBoundingClientRect();
           updateJoyPoint(t.clientX,t.clientY);handled=true;
