@@ -1,4 +1,5 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/loaders/GLTFLoader.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("gameCanvas");
@@ -39,6 +40,16 @@ const C = {
   skin2:0xb96f50, brown:0x623a2c, black:0x111924, green:0x35c48d, purple:0x7d57d1
 };
 const mats = new Map();
+// The game now has a real GLB/skin/animation entry point.  It is deliberately
+// opt-in until a production-quality character is supplied: the bundled model
+// is a technical skeleton test and must not silently replace the polished
+// sprite character on players' phones.
+const PLAYER_3D_ASSET = {
+  url:"./assets/models/luffy-rigged-prototype.glb",
+  testMode:new URLSearchParams(location.search).get("model")==="prototype",
+  scale:1,
+  y:0
+};
 const playerSpriteTexture=new THREE.TextureLoader().load("./assets/luffy-sprite-atlas.webp");
 playerSpriteTexture.colorSpace=THREE.SRGBColorSpace;
 playerSpriteTexture.wrapS=playerSpriteTexture.wrapT=THREE.RepeatWrapping;
@@ -521,6 +532,65 @@ function createPlayerModel(){
   return g;
 }
 
+// Real 3D player pipeline ---------------------------------------------------
+// A valid production GLB only needs to contain a skinned mesh and clips named
+// Idle, Walk, Attack (Hurt is optional).  The gameplay state remains the
+// authority; the animation mixer never moves the player in world space.
+function loadPlayerGLB(root){
+  if(!PLAYER_3D_ASSET.testMode)return;
+  const loader=new GLTFLoader();
+  loader.load(PLAYER_3D_ASSET.url,gltf=>{
+    const model=gltf.scene;
+    model.name="Luffy_GLTF_Character";
+    model.position.y=PLAYER_3D_ASSET.y;
+    model.scale.setScalar(PLAYER_3D_ASSET.scale);
+    model.traverse(node=>{
+      if(!node.isMesh)return;
+      node.castShadow=true;node.receiveShadow=true;
+      // Keep the original PBR textures and let the game's existing
+      // hemisphere/sun/rim lights provide shape, rather than flattening it
+      // into a sprite-like basic material.
+      if(node.material){
+        node.material.transparent=false;
+        node.material.needsUpdate=true;
+      }
+    });
+    const mixer=new THREE.AnimationMixer(model);
+    const actions={};
+    gltf.animations.forEach(clip=>actions[clip.name.toLowerCase()]=mixer.clipAction(clip));
+    root.add(model);
+    root.userData.model3d={enabled:true,model,mixer,actions,current:null};
+    // Only hide the 2D fallback after GLB parsing succeeds.
+    [root.userData.sprite,root.userData.depthSprite,root.userData.rimSprite].forEach(item=>{if(item)item.visible=false;});
+    if(root.userData.shadow)root.userData.shadow.visible=false;
+    playPlayer3DAction(root,"idle",true);
+    toast("3D角色测试资源已加载",900);
+  },undefined,error=>{
+    console.warn("[GLB] player model fallback:",error);
+  });
+}
+function playPlayer3DAction(root,name,force=false){
+  const data=root?.userData?.model3d;if(!data?.enabled)return;
+  const resolved=data.actions[name]||data.actions.idle||Object.values(data.actions)[0];
+  if(!resolved||(!force&&data.current===resolved))return;
+  if(data.current)data.current.fadeOut(.12);
+  resolved.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(.12).play();
+  data.current=resolved;
+}
+function updatePlayer3D(root,dt,moving,p){
+  const data=root?.userData?.model3d;if(!data?.enabled)return false;
+  const clip=p.hurtAnim>0?(data.actions.hurt?"hurt":"idle"):(p.attackAnim>0||p.castTime>0?"attack":(moving?"walk":"idle"));
+  playPlayer3DAction(root,clip);
+  data.mixer.update(dt);
+  // A small body lean and walk rise adds readability but stays below the
+  // threshold where the player slides or breaks collision logic.
+  const bob=moving?Math.abs(Math.sin(state.time*8.5))*.055:0;
+  data.model.position.y=PLAYER_3D_ASSET.y+bob;
+  data.model.rotation.z=p.hurtAnim>0?Math.sin(Math.PI*p.hurtAnim)*-.11:0;
+  data.model.rotation.y=Math.sin(state.yaw)*.025;
+  return true;
+}
+
 // Lightweight Spine-compatible cutout rig.  Luffy gets a visible copy of the
 // same bone hierarchy; marine actors keep the old full-body atlas fallback
 // until their own exported parts are ready.
@@ -951,6 +1021,7 @@ function firstPersonCameraKick(p){
 buildWorld();
 state.playerModel=createPlayerModel();rigActor(state.playerModel);
 scene.add(state.playerModel);
+loadPlayerGLB(state.playerModel);
 loadLuffySpineAsset();
 
 
@@ -1288,6 +1359,7 @@ function updatePlayer(dt){
   state.playerModel.rotation.y=state.yaw+Math.PI;
   poseActor(state.playerModel,dt,moving,p.attackAnim,p.hurtAnim);
   updatePlayerSprite(moving,p,ix);
+  updatePlayer3D(state.playerModel,dt,moving,p);
   state.playerModel.visible=state.mode!=="first";
   if(state.mode==="first"){
     camera.position.copy(p.pos);
