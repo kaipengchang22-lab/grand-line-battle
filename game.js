@@ -412,12 +412,16 @@ function setFirstPersonCrop(mesh,row,column,x,y,w,h,flip=false){
 function buildArms(){
   arms.position.set(0,-.72,-.92);
   const left=new THREE.Group(), right=new THREE.Group();
-  left.position.set(-.48,-.05,0); right.position.set(.48,-.05,0); arms.add(left,right);
+  // Keep the first-person hands out near the lower corners.  The atlas cells
+  // contain the whole character, so the crop below deliberately samples only
+  // the outside of each forearm; otherwise the vest/torso reads as a second
+  // character in the camera view.
+  left.position.set(-.46,-.05,0); right.position.set(.46,-.05,0); arms.add(left,right);
   const leftSprite=makeFirstPersonCrop(),rightSprite=makeFirstPersonCrop();
-  leftSprite.scale.set(.82,1.34,1);rightSprite.scale.set(.82,1.34,1);
+  leftSprite.scale.set(.68,1.16,1);rightSprite.scale.set(.68,1.16,1);
   left.add(leftSprite);right.add(rightSprite);
-  const impact=new THREE.Group();impact.position.set(.16,.10,-.06);arms.add(impact);
-  const impactSprite=makeFirstPersonCrop();impactSprite.scale.set(1.85,1.85,1);impactSprite.renderOrder=23;impact.add(impactSprite);impact.visible=false;
+  const impact=new THREE.Group();impact.position.set(.10,.02,-.06);arms.add(impact);
+  const impactSprite=makeFirstPersonCrop();impactSprite.scale.set(1.55,1.30,1);impactSprite.renderOrder=23;impact.add(impactSprite);impact.visible=false;
   const kick=new THREE.Group();kick.visible=false;arms.add(kick);
   const kickSprite=makeFirstPersonCrop();kickSprite.scale.set(1.45,1.45,1);kickSprite.renderOrder=22;kick.add(kickSprite);
   arms.userData.kick=kick;
@@ -426,33 +430,63 @@ function buildArms(){
   arms.userData.impact=impact;arms.userData.impactSprite=impactSprite;arms.userData.kickSprite=kickSprite;
 }
 function updateFirstPersonSprite(p){
-  const left=arms.userData.leftSprite,right=arms.userData.rightSprite,impact=arms.userData.impact,impactSprite=arms.userData.impactSprite;
-  if(!left||!right)return;
+  const leftGroup=arms.userData.left,rightGroup=arms.userData.right;
+  const left=arms.userData.leftSprite,right=arms.userData.rightSprite;
+  const impact=arms.userData.impact,impactSprite=arms.userData.impactSprite;
+  if(!left||!right||!impact||!impactSprite)return;
+
+  // In first person there is one coherent pair of hands, not two copies of
+  // the full-body atlas cell.  Attack/hurt states replace that pair with a
+  // single action crop so the torso can never be duplicated on screen.
   const idleFrame=Math.floor(state.time*PLAYER_SPRITE_ANIMS.idle.fps)%4;
-  let row=0,frame=idleFrame,attack=false,hurt=false;
-  if(p.hurtAnim>0){row=3;frame=Math.min(3,Math.floor((1-p.hurtAnim)*4));hurt=true;}
-  else if(p.attackAnim>0||p.castTime>0){
-    row=2;attack=true;const progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
-    frame=Math.min(3,Math.floor(progress*4));
-  }
-  if(attack){
-    setFirstPersonCrop(left,0,idleFrame,.10,.23,.34,.62,true);
-    setFirstPersonCrop(right,row,frame,.18,.09,.80,.80,false);
-    right.scale.set(1.15,1.55,1);left.scale.set(.76,1.26,1);
-    impact.visible=frame>=1;
-    if(impact.visible){setFirstPersonCrop(impactSprite,row,frame,.06,.06,.88,.82,false);impactSprite.material.uniforms.opacity.value=.92;}
-  }else if(hurt){
-    setFirstPersonCrop(left,row,frame,.08,.22,.38,.65,true);
-    setFirstPersonCrop(right,row,frame,.54,.22,.38,.65,false);
-    right.scale.set(.80,1.25,1);left.scale.set(.80,1.25,1);impact.visible=false;
-  }else{
-    setFirstPersonCrop(left,0,idleFrame,.10,.23,.34,.62,true);
-    setFirstPersonCrop(right,0,idleFrame,.56,.23,.34,.62,false);
-    right.scale.set(.82,1.34,1);left.scale.set(.82,1.34,1);impact.visible=false;
-  }
+  const attack=p.attackAnim>0||p.castTime>0;
+  const hurt=!attack&&p.hurtAnim>0;
   const blink=p.invuln>0&&Math.floor(state.time*22)%2;
-  left.material.uniforms.opacity.value=blink?.52:1;right.material.uniforms.opacity.value=blink?.52:1;
-  setFirstPersonCrop(arms.userData.kickSprite,2,3,.15,.08,.78,.84,false);
+  const opacity=blink?.52:1;
+
+  // The old axe cast used a third overlay.  It is useful for the top-down
+  // actor, but would be a second first-person body, so keep it camera-only.
+  if(arms.userData.kick)arms.userData.kick.visible=false;
+  impact.rotation.z=0;
+  impactSprite.material.uniforms.opacity.value=opacity;
+
+  if(attack){
+    leftGroup.visible=false; rightGroup.visible=false; impact.visible=true;
+    const progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
+    const frame=Math.min(3,Math.floor(progress*4));
+    // Each crop is an arm/fist-only window from the generated attack row.
+    // The giant-fist frame is trimmed before the torso starts, avoiding the
+    // duplicate-character artifact while preserving the impact silhouette.
+    const crops=[
+      [2,0,.63,.16,.27,.28],
+      [2,1,.54,.08,.46,.33],
+      [2,2,.00,.06,.53,.47],
+      [2,3,.68,.16,.32,.30]
+    ][frame];
+    setFirstPersonCrop(impactSprite,...crops,false);
+    const punch=clamp(progress,0,1);
+    impact.position.set(.08+punch*.18,.01+punch*.05,-.09-punch*.12);
+    impactSprite.scale.set(frame===2?1.72:1.55,frame===2?1.50:1.25,1);
+    impactSprite.material.uniforms.opacity.value=opacity*(.88+punch*.12);
+  }else if(hurt){
+    leftGroup.visible=false; rightGroup.visible=false; impact.visible=true;
+    const frame=Math.min(3,Math.floor((1-p.hurtAnim)*4));
+    // A single upper-body recoil crop is intentionally centered, so hit
+    // feedback never looks like two disconnected characters.
+    setFirstPersonCrop(impactSprite,3,frame,.12,.08,.70,.52,false);
+    impact.position.set(0,-.06,.02);impact.rotation.z=(1-p.hurtAnim)*.10;
+    impactSprite.scale.set(1.38,1.18,1);
+  }else{
+    leftGroup.visible=true; rightGroup.visible=true; impact.visible=false;
+    // Only the outer forearms/hands are sampled from the idle frame.  The
+    // narrow x windows exclude the red vest, shorts and legs entirely.
+    setFirstPersonCrop(left,0,idleFrame,.30,.14,.068,.45,true);
+    setFirstPersonCrop(right,0,idleFrame,.625,.14,.068,.45,false);
+    left.scale.set(.68,1.16,1);right.scale.set(.68,1.16,1);
+    leftGroup.position.set(-.46,-.05,0);rightGroup.position.set(.46,-.05,0);
+    impact.position.set(.10,.02,-.06);
+  }
+  left.material.uniforms.opacity.value=opacity;right.material.uniforms.opacity.value=opacity;
 }
 buildArms();
 buildWorld();
