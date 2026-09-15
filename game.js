@@ -946,7 +946,10 @@ function updateMarineSprite(e,dt){
   }
   const shadow=e.model.userData.animShadow;
   if(shadow){const lift=moving?Math.abs(Math.sin(phase))*.08:actionPulse*.04;shadow.scale.x=(e.type==="captain"?1.45:1.2)+lift*.8;shadow.scale.y=.62-lift*.25;}
-  updateSpineStyleRig(e.model,{moving,action:name,progress:clip.loop?0:clamp(e.animTime,0,1),look:e.model.rotation.y,flash, buff:false});
+  // Reuse the computed flash state for the rim layer.  The previous call
+  // referenced an undeclared `flash` variable, which stopped the animation
+  // loop on the first marine tick and left only the HUD over a blank canvas.
+  updateSpineStyleRig(e.model,{moving,action:name,progress:clip.loop?0:clamp(e.animTime,0,1),look:e.model.rotation.y,flash:flashing,buff:false});
   setMarineSpriteFrame(sprite,map,frame);
   sprite.material.color.setHex(flashing?0xffb2a8:0xffffff);
   sprite.material.opacity=flashing?.86:1;
