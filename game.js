@@ -306,8 +306,9 @@ function createPlayerModel(){
   return g;
 }
 
-function setPlayerSpriteFrame(row,column){
-  const x=column*.25,y=1-(row+1)*.25;
+function setPlayerSpriteFrame(row,column,flip=false){
+  const x=flip?(column+1)*.25:column*.25,y=1-(row+1)*.25;
+  playerSpriteTexture.repeat.x=flip?-.25:.25;
   if(playerSpriteTexture.offset.x!==x||playerSpriteTexture.offset.y!==y)playerSpriteTexture.offset.set(x,y);
 }
 
@@ -321,9 +322,9 @@ function updatePlayerSprite(moving,p,inputX){
     frame=Math.min(3,Math.floor(progress*4));
   }else if(moving){action="walk";frame=Math.floor(state.time*PLAYER_SPRITE_ANIMS.walk.fps)%4;}
   else frame=Math.floor(state.time*PLAYER_SPRITE_ANIMS.idle.fps)%4;
-  setPlayerSpriteFrame(PLAYER_SPRITE_ANIMS[action].row,frame);
   if(moving&&Math.abs(inputX)>.08)state.playerModel.userData.facing=inputX<0?-1:1;
-  sprite.scale.x=Math.abs(sprite.scale.x)*state.playerModel.userData.facing;
+  setPlayerSpriteFrame(PLAYER_SPRITE_ANIMS[action].row,frame,state.playerModel.userData.facing<0);
+  sprite.scale.x=Math.abs(sprite.scale.x);
   sprite.material.opacity=p.invuln>0&&Math.floor(state.time*22)%2?.48:1;
   sprite.material.color.setHex(p.buff>0?0xffe7aa:0xffffff);
   state.playerModel.userData.spriteAction=action;
@@ -393,22 +394,65 @@ function clearActors(){
 
 const arms=new THREE.Group();
 camera.add(arms);
+function makeFirstPersonCrop(){
+  const material=new THREE.ShaderMaterial({
+    transparent:true,depthTest:false,depthWrite:false,
+    uniforms:{map:{value:playerSpriteTexture},uvOffset:{value:new THREE.Vector2()},uvScale:{value:new THREE.Vector2()},opacity:{value:1}},
+    vertexShader:"varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}",
+    fragmentShader:"uniform sampler2D map;uniform vec2 uvOffset,uvScale;uniform float opacity;varying vec2 vUv;void main(){vec4 c=texture2D(map,uvOffset+vUv*uvScale);c.a*=opacity;if(c.a<.04)discard;gl_FragColor=c;}"
+  });
+  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1),material);
+  mesh.frustumCulled=false;mesh.renderOrder=20;return mesh;
+}
+function setFirstPersonCrop(mesh,row,column,x,y,w,h,flip=false){
+  const cell=.25,scale=mesh.material.uniforms.uvScale.value,offset=mesh.material.uniforms.uvOffset.value;
+  scale.set((flip?-1:1)*cell*w,cell*h);
+  offset.set(cell*column+cell*(flip?x+w:x),1-(row+1)*cell+cell*(1-y-h));
+}
 function buildArms(){
   arms.position.set(0,-.72,-.92);
   const left=new THREE.Group(), right=new THREE.Group();
   left.position.set(-.48,-.05,0); right.position.set(.48,-.05,0); arms.add(left,right);
-  [left,right].forEach((a,i)=>{
-    add(a,new THREE.CylinderGeometry(.13,.19,.9,9),toon(C.skin),0,0,0,Math.PI/2,0,i?-.12:.12);
-    add(a,new THREE.SphereGeometry(.24,10,8),toon(C.skin),0,-.02,-.48);
-    add(a,new THREE.TorusGeometry(.2,.07,7,12),toon(C.ink),0,-.02,-.35,Math.PI/2);
-    add(a,new THREE.CylinderGeometry(.2,.2,.18,9),toon(C.red),0,-.02,-.28,Math.PI/2);
-    for(let n=0;n<3;n++)add(a,new THREE.BoxGeometry(.055,.055,.18),toon(0xffd1ad),-.09+n*.09,.11,-.54);
-  });
+  const leftSprite=makeFirstPersonCrop(),rightSprite=makeFirstPersonCrop();
+  leftSprite.scale.set(.82,1.34,1);rightSprite.scale.set(.82,1.34,1);
+  left.add(leftSprite);right.add(rightSprite);
+  const impact=new THREE.Group();impact.position.set(.16,.10,-.06);arms.add(impact);
+  const impactSprite=makeFirstPersonCrop();impactSprite.scale.set(1.85,1.85,1);impactSprite.renderOrder=23;impact.add(impactSprite);impact.visible=false;
   const kick=new THREE.Group();kick.visible=false;arms.add(kick);
-  add(kick,new THREE.CylinderGeometry(.16,.21,1.4,10),toon(C.skin),0,0,0,Math.PI/2);
-  add(kick,new THREE.BoxGeometry(.45,.24,.62),toon(C.brown),0,0,-.8);
+  const kickSprite=makeFirstPersonCrop();kickSprite.scale.set(1.45,1.45,1);kickSprite.renderOrder=22;kick.add(kickSprite);
   arms.userData.kick=kick;
   arms.userData.left=left; arms.userData.right=right;
+  arms.userData.leftSprite=leftSprite;arms.userData.rightSprite=rightSprite;
+  arms.userData.impact=impact;arms.userData.impactSprite=impactSprite;arms.userData.kickSprite=kickSprite;
+}
+function updateFirstPersonSprite(p){
+  const left=arms.userData.leftSprite,right=arms.userData.rightSprite,impact=arms.userData.impact,impactSprite=arms.userData.impactSprite;
+  if(!left||!right)return;
+  const idleFrame=Math.floor(state.time*PLAYER_SPRITE_ANIMS.idle.fps)%4;
+  let row=0,frame=idleFrame,attack=false,hurt=false;
+  if(p.hurtAnim>0){row=3;frame=Math.min(3,Math.floor((1-p.hurtAnim)*4));hurt=true;}
+  else if(p.attackAnim>0||p.castTime>0){
+    row=2;attack=true;const progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
+    frame=Math.min(3,Math.floor(progress*4));
+  }
+  if(attack){
+    setFirstPersonCrop(left,0,idleFrame,.10,.23,.34,.62,true);
+    setFirstPersonCrop(right,row,frame,.18,.09,.80,.80,false);
+    right.scale.set(1.15,1.55,1);left.scale.set(.76,1.26,1);
+    impact.visible=frame>=1;
+    if(impact.visible){setFirstPersonCrop(impactSprite,row,frame,.06,.06,.88,.82,false);impactSprite.material.uniforms.opacity.value=.92;}
+  }else if(hurt){
+    setFirstPersonCrop(left,row,frame,.08,.22,.38,.65,true);
+    setFirstPersonCrop(right,row,frame,.54,.22,.38,.65,false);
+    right.scale.set(.80,1.25,1);left.scale.set(.80,1.25,1);impact.visible=false;
+  }else{
+    setFirstPersonCrop(left,0,idleFrame,.10,.23,.34,.62,true);
+    setFirstPersonCrop(right,0,idleFrame,.56,.23,.34,.62,false);
+    right.scale.set(.82,1.34,1);left.scale.set(.82,1.34,1);impact.visible=false;
+  }
+  const blink=p.invuln>0&&Math.floor(state.time*22)%2;
+  left.material.uniforms.opacity.value=blink?.52:1;right.material.uniforms.opacity.value=blink?.52:1;
+  setFirstPersonCrop(arms.userData.kickSprite,2,3,.15,.08,.78,.84,false);
 }
 buildArms();
 buildWorld();
@@ -646,6 +690,7 @@ function updatePlayer(dt){
       const leg=state.playerModel.userData.rig.legs[1];leg.rotation.x=-2.7+q*3.2;
     }
   }
+  updateFirstPersonSprite(p);
 }
 
 function beginDodge(){
