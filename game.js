@@ -39,6 +39,18 @@ const C = {
   skin2:0xb96f50, brown:0x623a2c, black:0x111924, green:0x35c48d, purple:0x7d57d1
 };
 const mats = new Map();
+const playerSpriteTexture=new THREE.TextureLoader().load("./assets/luffy-sprite-atlas.webp");
+playerSpriteTexture.colorSpace=THREE.SRGBColorSpace;
+playerSpriteTexture.wrapS=playerSpriteTexture.wrapT=THREE.RepeatWrapping;
+playerSpriteTexture.repeat.set(.25,.25);
+playerSpriteTexture.offset.set(0,.75);
+playerSpriteTexture.magFilter=THREE.LinearFilter;
+playerSpriteTexture.minFilter=THREE.LinearMipmapLinearFilter;
+playerSpriteTexture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+const PLAYER_SPRITE_ANIMS={
+  idle:{row:0,fps:5,loop:true},walk:{row:1,fps:9,loop:true},
+  attack:{row:2,fps:12,loop:false},hurt:{row:3,fps:10,loop:false}
+};
 const toonRamp=new THREE.DataTexture(new Uint8Array([42,105,185,255]),4,1,THREE.RedFormat);
 toonRamp.minFilter=THREE.NearestFilter;toonRamp.magFilter=THREE.NearestFilter;toonRamp.needsUpdate=true;
 const inkMaterial=new THREE.MeshBasicMaterial({color:C.ink,side:THREE.BackSide});
@@ -279,38 +291,42 @@ function createMarineModel(type,boss=false){
 
 function createPlayerModel(){
   const g=new THREE.Group();
-  add(g,new THREE.CylinderGeometry(.38,.46,.72,9),toon(0x263745),-.4,.38,0);
-  add(g,new THREE.CylinderGeometry(.38,.46,.72,9),toon(0x263745),.4,.38,0);
-  add(g,new THREE.CylinderGeometry(.31,.35,1.25,9),toon(0x2f788b),-.36,1.28,0);
-  add(g,new THREE.CylinderGeometry(.31,.35,1.25,9),toon(0x2f788b),.36,1.28,0);
-  add(g,new THREE.CylinderGeometry(.82,.68,1.65,10),toon(C.orange),0,2.6,0);
-  add(g,new THREE.BoxGeometry(1.5,.16,.18),toon(C.gold),0,2.15,.72);
-  add(g,new THREE.SphereGeometry(.62,14,10),toon(C.skin),0,3.92,0);
-  add(g,new THREE.SphereGeometry(.67,12,7,0,Math.PI*2,0,Math.PI*.52),toon(0x29212a),0,4.16,0);
-  for(let i=0;i<7;i++)add(g,new THREE.ConeGeometry(.13,.5,7),toon(0x29212a),-.48+i*.16,4.36,.08,0,0,(i-3)*.13);
-  add(g,new THREE.TorusGeometry(.72,.12,8,24),toon(C.gold),0,4.48,0,Math.PI/2);
-  add(g,new THREE.CylinderGeometry(.54,.58,.22,16),toon(C.orange),0,4.58,0);
-  add(g,new THREE.BoxGeometry(.14,.08,.07),toon(C.ink),-.22,3.99,.57);
-  add(g,new THREE.BoxGeometry(.14,.08,.07),toon(C.ink),.22,3.99,.57);
-  add(g,new THREE.CylinderGeometry(.22,.28,1.55,9),toon(C.skin),-.88,2.68,0,0,0,-.15);
-  add(g,new THREE.CylinderGeometry(.22,.28,1.55,9),toon(C.skin),.88,2.68,0,0,0,.15);
-  add(g,new THREE.SphereGeometry(.12,8,6),toon(C.skin),-.62,3.95,0);
-  add(g,new THREE.SphereGeometry(.12,8,6),toon(C.skin),.62,3.95,0);
-  add(g,new THREE.ConeGeometry(.12,.3,7),toon(C.skin),0,3.92,.64,Math.PI/2);
-  add(g,new THREE.BoxGeometry(.3,.05,.05),toon(C.ink),-.22,4.14,.58,0,0,-.12);
-  add(g,new THREE.BoxGeometry(.3,.05,.05),toon(C.ink),.22,4.14,.58,0,0,.12);
-  add(g,new THREE.BoxGeometry(.42,.055,.045),toon(0x8b302d),0,3.73,.59);
-  add(g,new THREE.BoxGeometry(.7,.18,.09),toon(0xffd5aa),-.34,3.1,.76,0,0,-.48);
-  add(g,new THREE.BoxGeometry(.7,.18,.09),toon(0xffd5aa),.34,3.1,.76,0,0,.48);
-  add(g,new THREE.CylinderGeometry(.78,.78,.27,12),toon(C.red),0,2.02,0);
-  add(g,new THREE.BoxGeometry(.34,.22,.12),toon(C.gold),0,2.02,.82);
-  add(g,new THREE.BoxGeometry(.78,.13,.95),toon(0xe7f3e7),-.4,.18,.1);
-  add(g,new THREE.BoxGeometry(.78,.13,.95),toon(0xe7f3e7),.4,.18,.1);
-  add(g,new THREE.TorusGeometry(.23,.07,7,12),toon(C.ink),-.98,1.96,0,Math.PI/2);
-  add(g,new THREE.TorusGeometry(.23,.07,7,12),toon(C.ink),.98,1.96,0,Math.PI/2);
-  const scarf=add(g,new THREE.PlaneGeometry(1.1,.9),toon(C.red),-.72,3.2,-.46,0,.25,.22);scarf.material.side=THREE.DoubleSide;
-  addModelOutlines(g,1.032);
+  const material=new THREE.SpriteMaterial({
+    map:playerSpriteTexture,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
+    color:0xffffff,toneMapped:true
+  });
+  const sprite=new THREE.Sprite(material);
+  sprite.center.set(.5,.08);sprite.position.set(0,.32,0);sprite.scale.set(5.35,5.35,1);
+  sprite.renderOrder=4;g.add(sprite);
+  const shadow=add(g,new THREE.CircleGeometry(.72,28),new THREE.MeshBasicMaterial({
+    color:0x07131c,transparent:true,opacity:.32,depthWrite:false
+  }),0,.035,0,-Math.PI/2);
+  shadow.castShadow=false;shadow.receiveShadow=false;
+  g.userData.sprite=sprite;g.userData.spriteAction="idle";g.userData.facing=1;
   return g;
+}
+
+function setPlayerSpriteFrame(row,column){
+  const x=column*.25,y=1-(row+1)*.25;
+  if(playerSpriteTexture.offset.x!==x||playerSpriteTexture.offset.y!==y)playerSpriteTexture.offset.set(x,y);
+}
+
+function updatePlayerSprite(moving,p,inputX){
+  const sprite=state.playerModel.userData.sprite;if(!sprite)return;
+  let action="idle",frame=0;
+  if(p.hurtAnim>0){action="hurt";frame=Math.min(3,Math.floor((1-p.hurtAnim)*4));}
+  else if(p.attackAnim>0||p.castTime>0){
+    action="attack";
+    const progress=p.attackAnim>0?1-p.attackAnim:1-clamp(p.castTime/.6,0,1);
+    frame=Math.min(3,Math.floor(progress*4));
+  }else if(moving){action="walk";frame=Math.floor(state.time*PLAYER_SPRITE_ANIMS.walk.fps)%4;}
+  else frame=Math.floor(state.time*PLAYER_SPRITE_ANIMS.idle.fps)%4;
+  setPlayerSpriteFrame(PLAYER_SPRITE_ANIMS[action].row,frame);
+  if(moving&&Math.abs(inputX)>.08)state.playerModel.userData.facing=inputX<0?-1:1;
+  sprite.scale.x=Math.abs(sprite.scale.x)*state.playerModel.userData.facing;
+  sprite.material.opacity=p.invuln>0&&Math.floor(state.time*22)%2?.48:1;
+  sprite.material.color.setHex(p.buff>0?0xffe7aa:0xffffff);
+  state.playerModel.userData.spriteAction=action;
 }
 
 function createAllyModel(){
@@ -590,6 +606,7 @@ function updatePlayer(dt){
   state.playerModel.position.set(p.pos.x,0,p.pos.z);
   state.playerModel.rotation.y=state.yaw+Math.PI;
   poseActor(state.playerModel,dt,moving,p.attackAnim,p.hurtAnim);
+  updatePlayerSprite(moving,p,ix);
   state.playerModel.visible=state.mode!=="first";
   if(state.mode==="first"){
     camera.position.copy(p.pos);

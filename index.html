@@ -16,14 +16,14 @@
 
   <section id="startScreen" class="panel-screen">
     <div class="title-card">
-      <div class="eyebrow">原创热血海洋漫画风 · 第一人称 3D 动作游戏</div>
+      <div class="eyebrow">热血海洋漫画风 · 高清角色动作版</div>
       <h1>伟大航路<br><span>本部决战</span></h1>
       <p>突破海军防线，占领冰原据点，击败本部首领并护送盟友撤离。</p>
       <button id="startBtn" class="primary">开始决战</button>
       <div class="start-features">
         <span>◉ 左摇杆只负责移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
       </div>
-      <small>V9 动作与橡胶招式 · 命中蓄满大招 · 战斧/火箭消耗体力</small>
+      <small>V10 高清角色贴图 · 待机/走路/攻击/受击动画 · 双视角切换</small>
     </div>
   </section>
 
@@ -94,7 +94,7 @@
   </section>
 
   <script>
-    // V8 停用旧离线缓存，避免手机继续加载过期游戏逻辑。
+    // 停用旧离线缓存，避免手机继续加载过期游戏逻辑。
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then(registrations => {
         registrations.forEach(registration => registration.unregister());
@@ -104,6 +104,6 @@
       caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
     }
   </script>
-  <script type="module" src="./game.js?v=9"></script>
+  <script type="module" src="./game.js?v=10"></script>
 </body>
 </html>
