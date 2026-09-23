@@ -96,6 +96,20 @@ h1 span{color:var(--orange)}
 }
 @media (pointer:fine){#joystick,.actions,#lookZone span{opacity:.72}}
 
+/* Combat telemetry stays at the edge; never cover the crosshair or target. */
+.topbar{grid-template-columns:minmax(180px,25vw) minmax(180px,1fr) auto}
+.mission{min-width:0;max-width:34vw;padding:5px 12px;background:rgba(8,28,42,.62)}
+.mission strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:clamp(10px,1.25vw,14px)}
+.boss{top:max(54px,calc(env(safe-area-inset-top) + 48px));width:min(390px,40vw);padding:4px 9px;background:rgba(57,13,19,.73)}
+.boss>b{font-size:9px}.boss .bar{height:9px}
+.target-status{left:max(12px,env(safe-area-inset-left));top:auto;bottom:calc(max(8vh,env(safe-area-inset-bottom)) + 136px);transform:none;min-width:0;max-width:170px;padding:5px 8px;text-align:left;background:rgba(6,24,36,.56);border-color:rgba(255,210,91,.36);box-shadow:none}
+.target-status small{display:none}.target-status b{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.target-status span{font-size:9px}
+@media (max-height:520px){
+  .boss{top:max(47px,calc(env(safe-area-inset-top) + 42px));width:min(340px,36vw)}
+  .target-status{bottom:calc(max(8vh,env(safe-area-inset-bottom)) + 120px)}
+  .mission{max-width:30vw}
+}
+
 /* Nine combat controls, compact three-column layout on landscape phones. */
 .actions{width:198px;height:186px;display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,58px);gap:6px}
 .actions button,.actions button:nth-of-type(n){position:relative;inset:auto;width:60px;height:58px;box-sizing:border-box}
