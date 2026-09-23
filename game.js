@@ -842,14 +842,14 @@ function addHealthBar(model,width=2.2,y=5.3){
 const TROOP_3D_ASSETS={
   // The supplied XPS/FBX characters are Z-up.  `upAxis` is applied once in
   // attachTroop3D so every clone shares the same upright, ground-contact pose.
-  garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=51",height:6.15,rotation:Math.PI,upAxis:"z",label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
-  fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=51",height:5.25,rotation:Math.PI,upAxis:"z",label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
-  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=51",height:5.45,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
-  fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=51",height:5.35,rotation:Math.PI,upAxis:"z",label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
-  toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=51",height:4.1,rotation:Math.PI,upAxis:"z",label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
-  toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=51",height:4.35,rotation:Math.PI,upAxis:"z",label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
-  toyC:{url:"./assets/models/troops/toy-c/02_wanou_03.fbx?v=51",height:4.15,rotation:Math.PI,upAxis:"z",label:"玩偶兵·远程型",diffuse:"./assets/models/troops/toy-c/sugar001_threedoll_d.png"},
-  boss:{url:"./assets/models/troops/akainu/12110_U.fbx?v=51",height:7.25,rotation:Math.PI,upAxis:"z",label:"赤犬",diffuse:"./assets/models/troops/akainu/12010_Body_BC.png"}
+  garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=52",height:6.15,rotation:Math.PI,upAxis:"z",label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
+  fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=52",height:5.25,rotation:Math.PI,upAxis:"z",label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
+  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=52",height:5.45,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
+  fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=52",height:5.35,rotation:Math.PI,upAxis:"z",label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
+  toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=52",height:4.1,rotation:Math.PI,upAxis:"z",label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
+  toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=52",height:4.35,rotation:Math.PI,upAxis:"z",label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
+  toyC:{url:"./assets/models/troops/toy-c/02_wanou_03.fbx?v=52",height:4.15,rotation:Math.PI,upAxis:"z",label:"玩偶兵·远程型",diffuse:"./assets/models/troops/toy-c/sugar001_threedoll_d.png"},
+  boss:{url:"./assets/models/troops/akainu/12110_U.fbx?v=52",height:7.25,rotation:Math.PI,upAxis:"z",label:"赤犬",diffuse:"./assets/models/troops/akainu/12010_Body_BC.png"}
 };
 // Role-to-asset mapping for the ordinary marine slots.  The three toy FBX
 // files are deliberately used here because they are the lightest true 3D
@@ -1352,8 +1352,8 @@ function animateActors(dt){
     if(a.libraryModel){
       const swing=a.model.userData.swing||0,hurt=a.model.userData.hurt||0;
       a.libraryModel.position.y=a.libraryModel.userData.baseY+(moving?Math.abs(Math.sin(state.time*7.5+a.id))*.055:0);
-      const attackProgress=a.attackActive?clamp(a.attackAnimTime,0,1):0;
-      updateTroopRig(a.libraryModel,dt,moving,attackProgress,a.attackKind,hurt);
+      const attackProgress=a.attackActive?clamp(a.attackAnimTime,0,1):(a.type==="boss"?clamp(1-swing,0,1):0);
+      updateTroopRig(a.libraryModel,dt,moving,attackProgress,a.attackKind||"melee",hurt);
       a.libraryModel.rotation.z=(swing?Math.sin(Math.PI*swing)*-.035:0)+(hurt?Math.sin(Math.PI*hurt)*.035:0);
     }
   }

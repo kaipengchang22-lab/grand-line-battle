@@ -1,6 +1,6 @@
-# 《伟大航路·本部决战》V51 源码迁移说明
+# 《伟大航路·本部决战》V52 源码迁移说明
 
-## V51 敌兵 3D 动作优化（2026-09-23）
+## V52 敌兵 3D 动作优化（2026-09-23）
 
 - 移除海军小兵旧的 2D 行走、攻击、射击图集，不再把平面贴图当作敌兵。
 - 普通刀兵、枪兵、盾兵、队长统一映射到模型库中的玩偶突击/远程/重装和加普 FBX。
@@ -22,7 +22,7 @@
 
 ## 当前版本重点
 
-- 页面版本：V51
+- 页面版本：V52
 - 默认主角：Film Red 路飞
 - 默认模型路径：`assets/models/film-red-luffy/luffy022_body_model.fbx`
 - Film Red 配套贴图：同目录下 `luffy022_*.png`
@@ -48,7 +48,7 @@ python -m http.server 8080
 ## 迁移注意
 
 - 保持现有目录结构，尤其不要移动 `assets/models/film-red-luffy/`。
-- `index.html` 当前加载 `style.css?v=51` 与 `game.js?v=51`。
+- `index.html` 当前加载 `style.css?v=52` 与 `game.js?v=52`。
 - Three.js、GLTFLoader 与 FBXLoader 当前通过 jsDelivr CDN 加载，运行时需要网络。
 - 第一人称会隐藏第三人称世界角色，避免出现重复身体。
 - 后续以本 ZIP 为新项目源码基线；旧聊天和 GitHub `main` 只作参考。
