@@ -50,7 +50,7 @@ const playerModelChoice=new URLSearchParams(location.search).get("model")||"film
 const PLAYER_3D_ASSET={
   "film-red":{
     type:"fbx",url:"./assets/models/film-red-luffy/luffy022_body_model.fbx?v=47",
-    textureRoot:"./assets/models/film-red-luffy/",scale:1.35,y:.56,orientation:Math.PI,
+    textureRoot:"./assets/models/film-red-luffy/",scale:1.35,y:.56,orientation:0,
     label:"路飞 Film Red · 32,549面 · 6个蒙皮网格"
   },
   original:{type:"gltf",url:"./assets/models/straw-hat-hero-original.glb?v=3",scale:1.85,y:0,orientation:0,label:"旧版测试主角"},
@@ -197,7 +197,7 @@ function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 // World effects are deliberately geometry-first: low-poly cores, rings,
 // cones and fragments give the attacks volume without introducing more image
 // textures or a large post-processing pipeline on Android.
-const WORLD_EFFECT_LIMIT=170;
+const WORLD_EFFECT_LIMIT=90;
 function disposeWorldEffect(effect){
   const root=effect?.mesh;if(!root)return;
   root.traverse?.(node=>{
@@ -215,6 +215,7 @@ function pushWorldEffect(effect){
   state.effects.push(effect);return effect;
 }
 function addWorldEffect(mesh,total=.5,kind="fade",options={}){
+  if(!mesh.parent)scene.add(mesh);
   const material=mesh.material;
   return pushWorldEffect({mesh,time:total,total,kind,ownedMaterial:options.ownedMaterial??true,
     baseOpacity:material?.opacity??1,baseScale:mesh.scale.clone(),...options});
@@ -633,16 +634,38 @@ function applyFilmRedTextures(model){
     });
   });
 }
+// Use character-space axes expressed in each bone's bind frame. FBX bone
+// local X is often the limb's length axis, NOT the character's bending axis.
+function characterBoneAxes(model){
+  model.updateMatrixWorld(true);
+  const point=name=>model.getObjectByName(name)?.getWorldPosition(new THREE.Vector3());
+  const head=point("Bip001_Head"),hips=point("Bip001_Pelvis"),left=point("Bip001_L_Thigh"),right=point("Bip001_R_Thigh");
+  const up=head&&hips?head.sub(hips).normalize():new THREE.Vector3(0,1,0);
+  const side=left&&right?right.sub(left).normalize():new THREE.Vector3(1,0,0);
+  const forward=new THREE.Vector3().crossVectors(side,up).normalize();
+  side.crossVectors(up,forward).normalize();
+  return [side,up,forward];
+}
+function bindBonePose(bone,axes){
+  const inverse=bone.getWorldQuaternion(new THREE.Quaternion()).invert();
+  return {bone,base:bone.quaternion.clone(),axes:axes.map(axis=>axis.clone().applyQuaternion(inverse))};
+}
+function turnBone(entry,x=0,y=0,z=0){
+  if(!entry)return;
+  const angles=[x,y,z];
+  for(let i=0;i<3;i++)if(angles[i])entry.bone.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(entry.axes[i],angles[i]));
+}
 function setupFilmRedProceduralRig(model){
+  model.updateMatrixWorld(true);
   const names={
     pelvis:"Bip001_Pelvis",spine:"Bip001_Spine",chest:"Bip001_Spine1",neck:"Bip001_Neck",head:"Bip001_Head",
     armL:"Bip001_L_UpperArm",forearmL:"Bip001_L_Forearm",armR:"Bip001_R_UpperArm",forearmR:"Bip001_R_Forearm",
     thighL:"Bip001_L_Thigh",calfL:"Bip001_L_Calf",thighR:"Bip001_R_Thigh",calfR:"Bip001_R_Calf"
   };
-  const bones={};
+  const bones={},axes=characterBoneAxes(model);
   Object.entries(names).forEach(([key,name])=>{
     const bone=model.getObjectByName(name);
-    if(bone)bones[key]={bone,base:bone.rotation.clone()};
+    if(bone)bones[key]=bindBonePose(bone,axes);
   });
   return bones;
 }
@@ -676,6 +699,32 @@ function configurePlayer3D(root,model,animations=[]){
   toast("Film Red 路飞已加载",900);
   console.info("[Player3D] loaded",{choice:playerModelChoice,meshes,skinned,animations:animations.map(a=>a.name)});
 }
+function parseCharacterFBX(buffer,path){
+  const warn=console.warn;let repairedWarnings=0,model;
+  // Suppress only the known exporter defect during synchronous parsing.
+  // Akainu emits 76,422 identical warnings otherwise, freezing mobile consoles.
+  console.warn=(...args)=>{
+    if(args[0]==="THREE.FBXLoader: unknown attribute mapping type NoMappingInformation")repairedWarnings++;
+    else warn.apply(console,args);
+  };
+  try{model=new FBXLoader().parse(buffer,path);}finally{console.warn=warn;}
+  model.traverse(node=>{
+    if(!node.isMesh)return;
+    node.geometry.deleteAttribute("color");
+    const normal=node.geometry.getAttribute("normal");
+    if(!normal||Array.from(normal.array).some(value=>!Number.isFinite(value)))node.geometry.computeVertexNormals();
+    const materials=Array.isArray(node.material)?node.material:[node.material];
+    materials.forEach(material=>{if(material){material.vertexColors=false;material.needsUpdate=true;}});
+  });
+  if(repairedWarnings)console.info("[FBX] repaired invalid exporter color mapping",repairedWarnings);
+  return model;
+}
+function loadCharacterFBX(url,onLoad,onError){
+  new THREE.FileLoader().setResponseType("arraybuffer").load(url,buffer=>{
+    try{onLoad(parseCharacterFBX(buffer,THREE.LoaderUtils.extractUrlBase(url)));}
+    catch(error){onError(error);}
+  },undefined,onError);
+}
 function loadPlayerGLB(root){
   if(!PLAYER_3D_ASSET)return;
   const onError=error=>{
@@ -683,7 +732,7 @@ function loadPlayerGLB(root){
     modelTestMessage="Film Red 加载失败 · 正在显示2D备用角色";
   };
   if(PLAYER_3D_ASSET.type==="fbx"){
-    new FBXLoader().load(PLAYER_3D_ASSET.url,model=>configurePlayer3D(root,model,model.animations||[]),undefined,onError);
+    loadCharacterFBX(PLAYER_3D_ASSET.url,model=>configurePlayer3D(root,model,model.animations||[]),onError);
     return;
   }
   new GLTFLoader().load(PLAYER_3D_ASSET.url,gltf=>{
@@ -715,17 +764,17 @@ function updatePlayer3D(root,dt,moving,p){
   data.mixer.update(dt);
   if(data.procedural&&data.proceduralBones){
     const rig=data.proceduralBones,walk=Math.sin(state.time*9),attack=p.attackAnim>0?Math.sin((1-p.attackAnim)*Math.PI):0;
-    Object.values(rig).forEach(entry=>entry.bone.rotation.copy(entry.base));
-    if(rig.thighL)rig.thighL.bone.rotation.x+=moving?walk*.48:0;
-    if(rig.thighR)rig.thighR.bone.rotation.x-=moving?walk*.48:0;
-    if(rig.calfL)rig.calfL.bone.rotation.x+=moving?Math.max(0,-walk)*.38:0;
-    if(rig.calfR)rig.calfR.bone.rotation.x+=moving?Math.max(0,walk)*.38:0;
-    if(rig.armL)rig.armL.bone.rotation.x-=moving?walk*.34:0;
-    if(rig.armR)rig.armR.bone.rotation.x+=(moving?walk*.34:0)-attack*1.35;
-    if(rig.forearmR)rig.forearmR.bone.rotation.x-=attack*.72;
-    if(rig.spine)rig.spine.bone.rotation.z+=moving?Math.sin(state.time*4.5)*.035:Math.sin(state.time*2.2)*.018;
-    if(rig.chest)rig.chest.bone.rotation.x+=attack*.26;
-    if(rig.head)rig.head.bone.rotation.y+=Math.sin(state.time*.8)*.025;
+    Object.values(rig).forEach(entry=>entry.bone.quaternion.copy(entry.base));
+    data.moveBlend=THREE.MathUtils.damp(data.moveBlend||0,moving?1:0,12,dt);
+    const stride=walk*.32*data.moveBlend;
+    const turn=turnBone;
+    turn(rig.armL,0,0,.28);turn(rig.armR,0,0,-.28);
+    turn(rig.forearmL,-.16);turn(rig.forearmR,-.16);
+    turn(rig.thighL,stride);turn(rig.thighR,-stride);
+    turn(rig.calfL,Math.max(0,-stride)*.7);turn(rig.calfR,Math.max(0,stride)*.7);
+    turn(rig.armL,-stride*.6);turn(rig.armR,stride*.6);
+    turn(rig.spine,0,0,Math.sin(state.time*4.5)*.018*data.moveBlend);
+    turn(rig.chest,Math.sin(state.time*2.2)*.012);
 
     // Film Red has a valid skeleton but no native motion clips.  These poses
     // are layered on the same bones as locomotion so every skill still has a
@@ -735,7 +784,6 @@ function updatePlayer3D(root,dt,moving,p){
     const q=p.castTime>0?1-clamp(p.castTime/duration,0,1):p.attackAnim>0?1-p.attackAnim:0;
     const pulse=Math.sin(Math.PI*clamp(q,0,1));
     const windup=1-clamp(q/.28,0,1);
-    const turn=(entry,x=0,y=0,z=0)=>{if(entry){entry.bone.rotation.x+=x;entry.bone.rotation.y+=y;entry.bone.rotation.z+=z;}};
     if(p.attackAnim>0||p.castTime>0){
       if(skill==="combo"){
         const side=Math.sin(q*Math.PI*5.5);
@@ -749,9 +797,9 @@ function updatePlayer3D(root,dt,moving,p){
         turn(rig.forearmR,-.95*pulse,0,0);turn(rig.armL,.62*pulse,0,.18*pulse);
       }else if(skill==="axe"){
         turn(rig.pelvis,.22*pulse,0,0);turn(rig.spine,.12*pulse,0,-.18*pulse);
-        turn(rig.chest,-.42*pulse,0,-.15*pulse);turn(rig.armR,-2.0*pulse+windup*.45,0,-.4*pulse);
-        turn(rig.forearmR,-1.15*pulse,0,0);turn(rig.armL,-.7*pulse,0,.35*pulse);
-        turn(rig.thighR,-.22*pulse,0,0);turn(rig.thighL,.14*pulse,0,0);
+        turn(rig.chest,.22*pulse,0,-.1*pulse);turn(rig.armR,-.45*pulse,0,-.25*pulse);
+        turn(rig.forearmR,-.35*pulse,0,0);turn(rig.armL,-.4*pulse,0,.25*pulse);
+        turn(rig.thighR,-1.35*pulse,0,0);turn(rig.calfR,.45*pulse,0,0);turn(rig.thighL,.12*pulse,0,0);
       }else if(skill==="rocket"){
         turn(rig.pelvis,-.18*pulse,0,0);turn(rig.spine,-.5*pulse,0,0);turn(rig.chest,-.34*pulse,0,0);
         turn(rig.armR,-1.45*pulse,0,-.18*pulse);turn(rig.armL,-1.1*pulse,0,.2*pulse);
@@ -781,7 +829,7 @@ function updatePlayer3D(root,dt,moving,p){
   const bob=moving?Math.abs(Math.sin(state.time*8.5))*.055:0;
   data.model.position.y=data.model.userData.groundY+bob;
   data.model.rotation.z=p.hurtAnim>0?Math.sin(Math.PI*p.hurtAnim)*-.11:0;
-  data.model.rotation.y=PLAYER_3D_ASSET.orientation+Math.sin(state.yaw)*.025;
+  data.model.rotation.y=PLAYER_3D_ASSET.orientation;
   return true;
 }
 
@@ -991,7 +1039,7 @@ function loadTroopPrototype(type){
   const asset=TROOP_3D_ASSETS[type];if(!asset)return Promise.resolve(null);
   if(!troopModelPromises.has(type)){
     troopModelPromises.set(type,new Promise((resolve,reject)=>{
-      new FBXLoader().load(asset.url,model=>{
+      loadCharacterFBX(asset.url,model=>{
         let meshes=0,skinned=0;const defaultMap=troopTexture(asset.diffuse);
         model.traverse(node=>{
           if(!node.isMesh)return;meshes++;if(node.isSkinnedMesh)skinned++;
@@ -1006,7 +1054,7 @@ function loadTroopPrototype(type){
         if(!meshes){reject(new Error(`${asset.label} FBX 中没有可渲染网格`));return;}
         console.info("[Troop3D] prototype loaded",{type,label:asset.label,meshes,skinned,animations:(model.animations||[]).map(a=>a.name)});
         resolve(model);
-      },undefined,reject);
+      },reject);
     }));
   }
   return troopModelPromises.get(type);
@@ -1031,11 +1079,11 @@ async function attachTroop3D(e){
     // then reverses the upright correction and renders every actor head-down.
     actor.rotation.order="YXZ";
     if(asset.upAxis==="z")actor.rotation.x=-Math.PI/2;
-    actor.rotation.y=asset.rotation||0;
+    actor.rotation.y=0; // Upright FBX meshes already face the combat root's +Z.
     actor.updateMatrixWorld(true);
     let box=new THREE.Box3().setFromObject(actor),size=box.getSize(new THREE.Vector3());
     if(!Number.isFinite(size.y)||size.y<=.001)throw new Error(`${asset.label}尺寸无效`);
-    actor.scale.multiplyScalar(asset.height/size.y);actor.updateMatrixWorld(true);
+    actor.scale.multiplyScalar(asset.height/(size.y*e.model.scale.y));actor.updateMatrixWorld(true);
     box=new THREE.Box3().setFromObject(actor);actor.position.y-=box.min.y;
     actor.userData.baseY=actor.position.y;
     setupTroopRig(actor,assetType);
@@ -1398,10 +1446,10 @@ const TROOP_BONE_ALIASES={
   lFoot:["Bip001_L_Foot"],rFoot:["Bip001_R_Foot"]
 };
 function setupTroopRig(actor,assetType){
-  const bones={},base=new Map(),materials=[];
+  const bones={},base=new Map(),materials=[],axes=characterBoneAxes(actor);
   Object.entries(TROOP_BONE_ALIASES).forEach(([key,names])=>{
     const bone=names.map(name=>actor.getObjectByName(name)).find(Boolean);
-    if(bone){bones[key]=bone;if(!base.has(bone))base.set(bone,{position:bone.position.clone(),quaternion:bone.quaternion.clone(),scale:bone.scale.clone()});}
+    if(bone){bones[key]=bone;if(!base.has(bone))base.set(bone,{...bindBonePose(bone,axes),position:bone.position.clone(),quaternion:bone.quaternion.clone(),scale:bone.scale.clone()});}
   });
   actor.traverse(node=>{
     if(!node.isMesh)return;
@@ -1441,7 +1489,7 @@ function updateTroopRig(actor,dt,moving,attackProgress,attackKind,hurt){
   const hit=hurt>0?Math.sin(Math.PI*clamp(hurt,0,1)):0;
   if(hit){add("spine",0,0,.23*hit);add("chest",-.18*hit,0,0);add("head",-.12*hit,0,.08*hit);add("lUpperArm",0,0,.22*hit);add("rUpperArm",0,0,-.22*hit);}
   for(const [bone,pose] of rig.base){bone.position.copy(pose.position);bone.quaternion.copy(pose.quaternion);bone.scale.copy(pose.scale);}
-  delta.forEach((d,key)=>{const bone=rig.bones[key],pose=rig.base.get(bone);if(!pose)return;bone.quaternion.copy(pose.quaternion);bone.rotateX(d[0]);bone.rotateY(d[1]);bone.rotateZ(d[2]);});
+  delta.forEach((d,key)=>{const bone=rig.bones[key],pose=rig.base.get(bone);if(pose)turnBone(pose,...d);});
   const flashing=(actor.parent?.userData?.hitFlash||0)>0;
   rig.materials.forEach(entry=>{
     if(!entry.material.emissive)return;
@@ -1651,7 +1699,9 @@ function updatePlayer(dt){
   if(state.phase!=="exit"&&p.pos.z<-59)p.pos.z=-59;
 
   state.playerModel.position.set(p.pos.x,0,p.pos.z);
-  state.playerModel.rotation.y=state.yaw+Math.PI;
+  // Locomotion faces travel; attacks face aim. Camera/joystick stay independent.
+  const facing=(p.attackAnim>0||p.castTime>0)?aimDirection():(moving?move:playerDirection());
+  if(moving||p.attackAnim>0||p.castTime>0)rotateTroopToward(state.playerModel,Math.atan2(facing.x,facing.z),dt,p.attackAnim>0?24:12);
   poseActor(state.playerModel,dt,moving,p.attackAnim,p.hurtAnim);
   updatePlayerSprite(moving,p,ix);
   updatePlayer3D(state.playerModel,dt,moving,p);
@@ -1701,7 +1751,8 @@ function attack(){
   const p=state.player;if(!canCast('attack'))return;
   p.cooldowns.attack=p.buff>0?.18:.34;p.attackAnim=1;p.castKind="basic";startFirstPersonAction("basic");
   const dir=aimDirection();dir.y=0;dir.normalize();spawnMeleeArc(p.pos,dir,p.buff>0?C.gold:C.orange,1.25);
-  const damage=p.buff>0?31:23; hitCone(damage,4.4,.72);
+  const damage=p.buff>0?31:23;
+  scheduleCombat(.085,()=>hitCone(damage,4.4,.72));
   audio.tone(170,.07,"square",.035);
 }
 function skill1(){
@@ -1732,7 +1783,7 @@ function useHaki(){
   spawnSkillCharge(p.pos,C.purple,"haki");spawnImpactBurst(p.pos,C.purple,{heavy:true,radius:5.8});
   spawnEnergyColumn(p.pos,C.purple,5.5);
   state.enemies.forEach(e=>{if(!e.dead&&dist2D(e.pos,p.pos)<12){e.stun=e.type==="boss"?1.2:3;damageEnemy(e,e.type==="boss"?55:85,true);}});
-  for(let i=state.hazards.length-1;i>=0;i--){const h=state.hazards[i];if(h.type==="line"&&h.time>0){scene.remove(h.mesh);state.hazards.splice(i,1);}}
+  for(let i=state.hazards.length-1;i>=0;i--){const h=state.hazards[i];if(h.type==="line"&&h.time>0){scene.remove(h.mesh);disposeWorldEffect({mesh:h.mesh,ownedMaterial:true});state.hazards.splice(i,1);}}
   toast("震慑领域！",1200);audio.tone(62,.7,"sawtooth",.075);
 }
 function hitCone(damage,range,minDot){
@@ -1986,7 +2037,7 @@ function spawnImpactBurst(pos,color,options={}){
   const ring=new THREE.Mesh(new THREE.TorusGeometry(radius*.2,.07,7,32),ringMat);ring.rotation.x=-Math.PI/2;ring.position.set(pos.x,y,pos.z);
   addWorldEffect(ring,heavy?.62:.4,"custom",{ownedMaterial:true,update:f=>{const q=1-f.time/f.total;f.mesh.scale.setScalar(.35+q*(heavy?3.2:2.15));f.mesh.material.opacity=.95*(1-q);}});
   const coreMat=new THREE.MeshBasicMaterial({color:0xfff2c4,transparent:true,opacity:.96,blending:THREE.AdditiveBlending,depthWrite:false});
-  const core=new THREE.Mesh(new THREE.IcosahedronGeometry(heavy?.28:.18,1),coreMat);core.position.set(pos.x,y+heavy?.18:.1,pos.z);
+  const core=new THREE.Mesh(new THREE.IcosahedronGeometry(heavy?.28:.18,1),coreMat);core.position.set(pos.x,y+(heavy?.18:.1),pos.z);
   addWorldEffect(core,heavy?.38:.25,"custom",{ownedMaterial:true,update:f=>{const q=1-f.time/f.total;f.mesh.scale.setScalar((1-q)*(.4+q*2.3));f.mesh.material.opacity=.96*(1-q);f.mesh.rotation.x+=.16;f.mesh.rotation.z+=.12;}});
   const count=heavy?7:4;
   for(let i=0;i<count;i++){
