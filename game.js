@@ -386,6 +386,37 @@ function buildWorld(){
   emblem.castShadow=false;
   for(const x of [-32,32])createFortressTower(x);
 
+  // Layered naval fortress silhouette: keep the central battle lane clear.
+  const stone=toon(0x89aab6),edge=toon(0xd2e4e5),shade=toon(0x355668);
+  for(const side of [-1,1]){
+    const x=side*24;
+    add(world,new THREE.BoxGeometry(16,4,12),stone,x,10,-72);
+    add(world,new THREE.BoxGeometry(18,.8,13),edge,x,12.4,-72);
+    add(world,new THREE.BoxGeometry(11,10,8),stone,side*22,18,-74);
+    add(world,new THREE.CylinderGeometry(6.1,7.2,1.3,8),shade,side*22,23.5,-74);
+    for(let j=0;j<4;j++){
+      const bx=x+(j-1.5)*4;
+      add(world,new THREE.BoxGeometry(2.3,1.5,2.4),edge,bx,13.3,-66.3);
+      add(world,new THREE.BoxGeometry(1.2,2.7,.2),shade,bx,9.4,-65.85);
+    }
+    for(let j=0;j<3;j++){
+      const bx=side*(16+j*5);
+      add(world,new THREE.BoxGeometry(1.1,6,3),shade,bx,3,-63.4);
+      add(world,new THREE.BoxGeometry(1.8,.6,3.5),edge,bx,6.1,-63.3);
+    }
+  }
+  add(world,new THREE.BoxGeometry(17,2,7),stone,0,17,-68);
+  add(world,new THREE.BoxGeometry(18,.75,8),edge,0,18.4,-68);
+  for(let j=-3;j<=3;j++)add(world,new THREE.BoxGeometry(1.6,1.6,2),edge,j*2.5,19.5,-64.8);
+  // Small quayside seawalls, stairs and cover create scale without blocking movement.
+  for(const side of [-1,1]){
+    add(world,new THREE.BoxGeometry(1.3,1.4,48),stone,side*38,0.4,-30);
+    for(let j=0;j<4;j++){
+      add(world,new THREE.BoxGeometry(3.5,.25,1.2),edge,side*31,.16,-52+j*3);
+      add(world,new THREE.BoxGeometry(.9,2,1.4),shade,side*39,1.4,-48+j*13);
+    }
+  }
+
   state.gate = new THREE.Group(); state.gate.position.set(0,0,-64.2); world.add(state.gate);
   add(state.gate,new THREE.BoxGeometry(6.3,10,.9),toon(0x365062),-3.2,5,0);
   add(state.gate,new THREE.BoxGeometry(6.3,10,.9),toon(0x365062),3.2,5,0);
@@ -624,7 +655,15 @@ function configurePlayer3D(root,model,animations=[]){
   }
   if(playerModelChoice==="film-red")applyFilmRedTextures(model);
   model.name=playerModelChoice==="film-red"?"Luffy_Film_Red_Character":"Luffy_GLTF_Character";
-  model.position.y=PLAYER_3D_ASSET.y;model.rotation.y=PLAYER_3D_ASSET.orientation;model.scale.setScalar(PLAYER_3D_ASSET.scale);
+  model.rotation.order="YXZ";
+  // Film Red mesh vertices are Z-up although its FBX bones report Y-up.
+  // Yaw must be applied AFTER the upright correction, or the cape/head flip down.
+  if(playerModelChoice==="film-red")model.rotation.x=-Math.PI/2;
+  model.rotation.y=PLAYER_3D_ASSET.orientation;model.scale.setScalar(PLAYER_3D_ASSET.scale);
+  model.updateMatrixWorld(true);
+  const playerBounds=new THREE.Box3().setFromObject(model);
+  model.userData.groundY=Number.isFinite(playerBounds.min.y)?-playerBounds.min.y:PLAYER_3D_ASSET.y;
+  model.position.y=model.userData.groundY;
   const mixer=new THREE.AnimationMixer(model),actions={};
   animations.forEach(clip=>actions[clip.name.toLowerCase()]=mixer.clipAction(clip));
   root.add(model);
@@ -740,7 +779,7 @@ function updatePlayer3D(root,dt,moving,p){
   // A small body lean and walk rise adds readability but stays below the
   // threshold where the player slides or breaks collision logic.
   const bob=moving?Math.abs(Math.sin(state.time*8.5))*.055:0;
-  data.model.position.y=PLAYER_3D_ASSET.y+bob;
+  data.model.position.y=data.model.userData.groundY+bob;
   data.model.rotation.z=p.hurtAnim>0?Math.sin(Math.PI*p.hurtAnim)*-.11:0;
   data.model.rotation.y=PLAYER_3D_ASSET.orientation+Math.sin(state.yaw)*.025;
   return true;
@@ -922,8 +961,7 @@ function addHealthBar(model,width=2.2,y=5.3){
 // hidden until the FBX is completely loaded and ground-corrected, so a slow or
 // failed request can never leave a floating health bar or a 2D placeholder.
 const TROOP_3D_ASSETS={
-  // The supplied XPS/FBX characters are Z-up.  `upAxis` is applied once in
-  // attachTroop3D so every clone shares the same upright, ground-contact pose.
+  // Mesh vertices are Z-up; their FBX skeleton may already read as Y-up.
   garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=52",height:6.15,rotation:Math.PI,upAxis:"z",label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
   fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=52",height:5.25,rotation:Math.PI,upAxis:"z",label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
   fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=52",height:5.45,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
@@ -989,6 +1027,9 @@ async function attachTroop3D(e){
     const actor=cloneSkeleton(prototype);actor.name=`${assetType}_LibraryModel`;
     // FBX is Z-up while the game world is Y-up.  The old code measured the
     // unrotated Y dimension, producing sideways and floating characters.
+    // Euler's default XYZ applies Y yaw before X pitch: a 180° facing turn
+    // then reverses the upright correction and renders every actor head-down.
+    actor.rotation.order="YXZ";
     if(asset.upAxis==="z")actor.rotation.x=-Math.PI/2;
     actor.rotation.y=asset.rotation||0;
     actor.updateMatrixWorld(true);
