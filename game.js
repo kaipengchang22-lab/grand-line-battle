@@ -43,6 +43,7 @@ const C = {
   navy:0x153b66, marine:0xe8f3f4, blue:0x2a6fbb, gold:0xffc74d, skin:0xf2b38c,
   skin2:0xb96f50, brown:0x623a2c, black:0x111924, green:0x35c48d, purple:0x7d57d1
 };
+const SKY_CLEAR=new THREE.Color(0x9fd5e4),SKY_STORM=new THREE.Color(0x526779);
 const mats = new Map();
 // Film Red is now the production default. The previous GLBs remain available
 // through ?model=original and ?model=rigged-luffy for regression testing.
@@ -377,6 +378,19 @@ function buildWorld(){
   foam.push(add(world,new THREE.PlaneGeometry(.32,116),foamMat,-41.1,-.26,-5,-Math.PI/2));
   foam.push(add(world,new THREE.PlaneGeometry(.32,116),foamMat,41.1,-.26,-5,-Math.PI/2));
   foam.forEach((f,i)=>{f.userData.wavePhase=i*1.7;f.userData.waveBaseX=f.position.x;});
+  const surf=new THREE.BufferGeometry(),shoreCount=112;
+  surf.setAttribute("position",new THREE.BufferAttribute(new Float32Array(shoreCount*3),3));
+  const surfMesh=new THREE.Points(surf,new THREE.PointsMaterial({color:0xd8fbff,size:2.8,transparent:true,opacity:.88,depthWrite:false,blending:THREE.AdditiveBlending}));
+  surfMesh.frustumCulled=false;world.add(surfMesh);
+  const shoreSpray=Array.from({length:shoreCount},(_,i)=>({age:seeded(9400+i)*1.8,life:.65+seeded(9600+i)*.65,
+    pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4}));
+  const weatherDrops=makeRainField(190);world.add(weatherDrops.mesh);
+  const cloudMesh=makeCloudBank();world.add(cloudMesh);
+  const gulls=makeGullFlock();gulls.forEach(g=>world.add(g));
+  const vegetation=makeVegetation();vegetation.forEach(o=>world.add(o));
+  const cannons=[];
+  for(const side of [-1,1])for(const z of [-39,-4,31])cannons.push(makeCannon(side*36.4,z,side));
+  cannons.forEach(o=>world.add(o));
 
   const wall=toon(0xb5cbd0);
   add(world,new THREE.BoxGeometry(82,9,5),wall,0,4.5,-67);
@@ -447,7 +461,69 @@ function buildWorld(){
     const x=(seeded(600+i)*2-1)*38,z=(seeded(720+i)*2-1)*58-4;
     add(world,new THREE.TetrahedronGeometry(.35+seeded(800+i)*.75,0),toon(i%3?0xd8f7fb:0x75c8d8),x,.18,z,0,seeded(910+i)*Math.PI,0);
   }
-  world.userData.environment={sea,seaMap:seaMaterial.map,waterWaves,foam,fortressLamp};
+  world.userData.environment={sea,seaMap:seaMaterial.map,waterWaves,foam,shoreSpray,surfMesh,weatherDrops,cloudMesh,gulls,
+    hemi,sun,rim,fortressLamp,cannons,weatherClock:0};
+}
+
+function makeRainField(count){
+  const geometry=new THREE.BufferGeometry(),positions=new Float32Array(count*2*3);
+  geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+  const mesh=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:0xc0e9f2,transparent:true,opacity:.36,depthWrite:false}));
+  mesh.frustumCulled=false;mesh.visible=false;return {mesh,count,positions};
+}
+function makeCloudBank(){
+  const geometry=new THREE.SphereGeometry(1,8,6),material=new THREE.MeshStandardMaterial({color:0xf2f5f3,roughness:1,flatShading:true});
+  const mesh=new THREE.InstancedMesh(geometry,material,24);mesh.frustumCulled=false;mesh.userData.base=[];
+  const dummy=new THREE.Object3D();
+  for(let i=0;i<24;i++){
+    const x=(seeded(9700+i)*2-1)*70,z=-64+seeded(9800+i)*125,y=18+seeded(9900+i)*11;
+    const scale=new THREE.Vector3(4+seeded(10000+i)*7,1.1+seeded(10100+i)*1.8,2.6+seeded(10200+i)*5);
+    dummy.position.set(x,y,z);dummy.scale.copy(scale);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);mesh.userData.base.push({x,y,z,scale});
+  }
+  mesh.instanceMatrix.needsUpdate=true;mesh.visible=false;return mesh;
+}
+function makeGullFlock(){
+  const result=[],wingGeo=new THREE.BufferGeometry();
+  wingGeo.setAttribute("position",new THREE.Float32BufferAttribute([0,0,0,.62,.12,0,1.35,0,.02,0,0,0,1.35,0,.02,.62,.08,.08],3));
+  wingGeo.computeVertexNormals();
+  const wingMat=new THREE.MeshBasicMaterial({color:0xe9f3f2,side:THREE.DoubleSide});
+  for(let i=0;i<5;i++){
+    const bird=new THREE.Group(),body=new THREE.Mesh(new THREE.SphereGeometry(.16,7,5),wingMat);
+    body.scale.set(1,.45,.65);bird.add(body);
+    const left=new THREE.Group(),right=new THREE.Group();left.position.x=-.08;right.position.x=.08;right.scale.x=-1;
+    left.add(new THREE.Mesh(wingGeo,wingMat));right.add(new THREE.Mesh(wingGeo,wingMat));bird.add(left,right);
+    bird.userData={left,right,phase:seeded(10300+i)*Math.PI*2,radius:22+seeded(10400+i)*24,height:13+seeded(10500+i)*9,speed:.035+seeded(10600+i)*.025};
+    bird.traverse(n=>{if(n.isMesh){n.castShadow=false;n.frustumCulled=false;}});result.push(bird);
+  }
+  return result;
+}
+function makeVegetation(){
+  const count=38,trunk=new THREE.InstancedMesh(new THREE.CylinderGeometry(.09,.14,1,5),toon(0x66503a),count);
+  const canopy=new THREE.InstancedMesh(new THREE.ConeGeometry(.68,1.15,6),toon(0x397a53),count*2);
+  const shrub=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.48,0),toon(0x4d9360),count);
+  const dummy=new THREE.Object3D();let leaf=0;
+  for(let i=0;i<count;i++){
+    const side=i%2?1:-1,z=52-(i*2.83)%108,x=side*(31.5+seeded(10700+i)*6.2),h=1.3+seeded(10800+i)*1.4;
+    dummy.position.set(x,h*.38,z);dummy.scale.set(1,h,1);dummy.rotation.y=seeded(10900+i)*6;dummy.updateMatrix();trunk.setMatrixAt(i,dummy.matrix);
+    for(let tier=0;tier<2;tier++){
+      dummy.position.set(x,h*(.61+tier*.27),z);dummy.scale.setScalar(1-tier*.24);dummy.updateMatrix();canopy.setMatrixAt(leaf++,dummy.matrix);
+    }
+    dummy.position.set(x+side*.55,.36,z+.8);dummy.scale.set(1.2,.8,1.1);dummy.updateMatrix();shrub.setMatrixAt(i,dummy.matrix);
+  }
+  for(const mesh of [trunk,canopy,shrub]){mesh.instanceMatrix.needsUpdate=true;mesh.castShadow=false;mesh.receiveShadow=false;}
+  return [trunk,canopy,shrub];
+}
+function makeCannon(x,z,side){
+  const root=new THREE.Group();root.position.set(x,0,z);root.rotation.y=-side*Math.PI/2;
+  const bronze=standard(0x48545a,.56,.48),iron=standard(0x26323a,.5,.65),stone=toon(0x65757a);
+  add(root,new THREE.CylinderGeometry(1.45,1.8,.52,8),stone,0,.26,0);
+  add(root,new THREE.BoxGeometry(1.35,.66,2.15),toon(0x553d30),0,.82,0);
+  for(const sideSign of [-1,1])add(root,new THREE.CylinderGeometry(.53,.53,.25,10),iron,sideSign*.82,.46,0,0,0,Math.PI/2);
+  const barrel=new THREE.Group();barrel.position.set(0,1.18,-.12);barrel.rotation.x=Math.PI/2;root.add(barrel);
+  add(barrel,new THREE.CylinderGeometry(.36,.48,2.7,10),bronze,0,1.05,0);
+  add(barrel,new THREE.TorusGeometry(.37,.08,6,12),iron,0,2.34,0,Math.PI/2);
+  const muzzle=add(barrel,new THREE.CylinderGeometry(.29,.34,.12,10),iron,0,2.42,0);muzzle.material.side=THREE.DoubleSide;
+  root.traverse(n=>{if(n.isMesh)n.castShadow=n.receiveShadow=false;});return root;
 }
 
 function createFortressTower(x){
@@ -488,6 +564,35 @@ function createShip(x,z,rot){
 }
 function updateEnvironment(dt){
   const env=world.userData.environment;if(!env)return;
+  env.weatherClock=(env.weatherClock+dt)%94;
+  const smooth=q=>{q=clamp(q,0,1);return q*q*(3-2*q);};
+  const overcast=Math.max(smooth((env.weatherClock-37)/10)*(1-smooth((env.weatherClock-73)/8)),0);
+  const rain=smooth((env.weatherClock-58)/9)*(1-smooth((env.weatherClock-80)/10));
+  const storm=clamp(overcast*.55+rain*.55,0,.78);
+  scene.background.copy(SKY_CLEAR).lerp(SKY_STORM,storm);
+  scene.fog.color.copy(scene.background);
+  env.hemi.intensity=2.25-storm*.95;env.sun.intensity=3-storm*1.65;env.rim.intensity=.72-storm*.4;
+  env.sun.color.setHex(rain>0.2?0xb8c9d8:0xfff0ce);
+  env.cloudMesh.visible=overcast>.03;
+  env.cloudMesh.material.color.setHex(rain>.2?0x8998a3:0xd5e0e0);
+  env.weatherDrops.mesh.visible=rain>.04;
+  env.weatherDrops.mesh.material.opacity=.36*rain;
+  if(env.weatherDrops.mesh.visible){
+    const p=env.weatherDrops.positions;
+    for(let i=0;i<env.weatherDrops.count;i++){
+      const x=(seeded(i*3.7)*2-1)*72+Math.sin(state.time*.7)*1.8,z=(seeded(i*8.1+22)*2-1)*74-5;
+      const y=22-((state.time*24+seeded(i*11.3)*34)%34),j=i*6;
+      p[j]=x;p[j+1]=y;p[j+2]=z;p[j+3]=x-.32;p[j+4]=y-1.05;p[j+5]=z+.16;
+    }
+    env.weatherDrops.mesh.geometry.attributes.position.needsUpdate=true;
+  }
+  env.cloudMesh.position.x=Math.sin(state.time*.012)*3.4;
+  env.gulls.forEach((bird,i)=>{
+    const b=bird.userData,t=state.time*b.speed+b.phase;
+    bird.position.set(Math.cos(t)*b.radius,b.height+Math.sin(t*2.1)*.65,Math.sin(t)*b.radius-8);
+    bird.rotation.y=t+Math.PI/2;b.left.rotation.z=Math.sin(state.time*8+b.phase)*.5;
+    b.right.rotation.z=-b.left.rotation.z;
+  });
   if(env.seaMap){env.seaMap.offset.x=(env.seaMap.offset.x+dt*.012)%1;env.seaMap.offset.y=(env.seaMap.offset.y+dt*.006)%1;}
   env.waterWaves?.forEach((wave,i)=>{
     const q=state.time*.62+wave.userData.wavePhase;
@@ -499,6 +604,22 @@ function updateEnvironment(dt){
     const q=state.time*1.7+foam.userData.wavePhase;
     foam.material.opacity=.35+Math.sin(q)*.11;foam.scale.x=1+Math.sin(q*1.13)*.035;
   });
+  const spray=env.shoreSpray,positions=env.surfMesh.geometry.attributes.position.array;
+  spray.forEach((particle,i)=>{
+    particle.age+=dt;
+    if(particle.age>=particle.life){
+      particle.age=0;particle.life=.5+seeded(state.time*7+i*19)*.72;
+      const edge=particle.edge;
+      particle.pos.set((seeded(i*3+Math.floor(state.time*1.8))*2-1)*76,-.12,(edge===0?57.2:edge===1?-67.2:(seeded(i*5)*2-1)*118-5));
+      if(edge>1)particle.pos.set(edge===2?-40.6:40.6,-.12,(seeded(i*3+Math.floor(state.time*1.8))*2-1)*116-5);
+      particle.vel.set((seeded(i*13+state.time)*2-1)*.65,.9+seeded(i*17)*1.35,(edge===0?.8:edge===1?-.8:0));
+    }
+    particle.pos.addScaledVector(particle.vel,dt);particle.vel.y-=2.7*dt;
+    const q=particle.age/particle.life,j=i*3;
+    positions[j]=particle.pos.x;positions[j+1]=particle.pos.y;positions[j+2]=particle.pos.z;
+    if(q>1)positions[j+1]=-50;
+  });
+  env.surfMesh.geometry.attributes.position.needsUpdate=true;
   if(env.fortressLamp)env.fortressLamp.intensity=1.65+Math.sin(state.time*1.6)*.18;
 }
 
@@ -712,7 +833,9 @@ function parseCharacterFBX(buffer,path){
     if(!node.isMesh)return;
     node.geometry.deleteAttribute("color");
     const normal=node.geometry.getAttribute("normal");
-    if(!normal||Array.from(normal.array).some(value=>!Number.isFinite(value)))node.geometry.computeVertexNormals();
+    let invalidNormal=!normal;
+    if(normal)for(let i=0;i<normal.array.length;i++)if(!Number.isFinite(normal.array[i])){invalidNormal=true;break;}
+    if(invalidNormal)node.geometry.computeVertexNormals();
     const materials=Array.isArray(node.material)?node.material:[node.material];
     materials.forEach(material=>{if(material){material.vertexColors=false;material.needsUpdate=true;}});
   });
