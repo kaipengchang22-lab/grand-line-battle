@@ -89,29 +89,11 @@ firstPersonTexture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy(
 // adjacent hand-drawn poses instead of snapping on a single frame boundary.
 const firstPersonBlendTexture=firstPersonTexture.clone();
 firstPersonBlendTexture.needsUpdate=true;
-// Marine infantry action atlases.  Each sheet is a 4x2 row-major strip with
-// eight transparent frames; per-enemy texture clones keep UV offsets isolated
-// so one soldier changing pose never changes every other soldier on screen.
-const marineAnimSources={
-  walk:"./assets/marine-walk-8f.webp",
-  saberAttack:"./assets/marine-saber-attack-8f.webp",
-  rifleFire:"./assets/marine-rifle-fire-8f.webp"
-};
-const marineAnimTextures={};
-Object.entries(marineAnimSources).forEach(([name,url])=>{
-  const texture=new THREE.TextureLoader().load(url);
-  texture.colorSpace=THREE.SRGBColorSpace;
-  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
-  texture.magFilter=THREE.LinearFilter;
-  texture.minFilter=THREE.LinearMipmapLinearFilter;
-  texture.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
-  marineAnimTextures[name]=texture;
-});
+// Infantry no longer uses the old 2D atlas.  Every enemy role resolves to a
+// real FBX from the uploaded model library below.
 const MARINE_ANIM_CLIPS={
-  idle:{texture:"walk",fps:1,loop:true},
-  walk:{texture:"walk",fps:8,loop:true},
-  saberAttack:{texture:"saberAttack",fps:8,loop:false,hitAt:.5},
-  rifleFire:{texture:"rifleFire",fps:8,loop:false,hitAt:.46}
+  saberAttack:{hitAt:.5},
+  rifleFire:{hitAt:.46}
 };
 const PLAYER_SPRITE_ANIMS={
   idle:{row:0,fps:5,loop:true},walk:{row:1,fps:9,loop:true},
@@ -854,19 +836,26 @@ function addHealthBar(model,width=2.2,y=5.3){
   fill.castShadow=false; root.userData.fill=fill; root.userData.width=width-.08; return root;
 }
 
-// Real model assets selected from the uploaded model library.  Each actor keeps
-// its lightweight procedural body visible until the FBX is completely loaded
-// and validated, so a slow or failed request can never leave a floating bar.
+// Real model assets selected from the uploaded model library.  Enemy roots stay
+// hidden until the FBX is completely loaded and ground-corrected, so a slow or
+// failed request can never leave a floating health bar or a 2D placeholder.
 const TROOP_3D_ASSETS={
-  garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=48",height:6.15,rotation:Math.PI,label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
-  fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=48",height:5.25,rotation:Math.PI,label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
-  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=48",height:5.45,rotation:Math.PI,label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
-  fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=48",height:5.35,rotation:Math.PI,label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
-  toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=48",height:4.1,rotation:Math.PI,label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
-  toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=48",height:4.35,rotation:Math.PI,label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
-  toyC:{url:"./assets/models/troops/toy-c/02_wanou_03.fbx?v=48",height:4.15,rotation:Math.PI,label:"玩偶兵·远程型",diffuse:"./assets/models/troops/toy-c/sugar001_threedoll_d.png"},
-  boss:{url:"./assets/models/troops/akainu/12110_U.fbx?v=48",height:7.25,rotation:Math.PI,label:"赤犬",diffuse:"./assets/models/troops/akainu/12010_Body_BC.png"}
+  // The supplied XPS/FBX characters are Z-up.  `upAxis` is applied once in
+  // attachTroop3D so every clone shares the same upright, ground-contact pose.
+  garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=51",height:6.15,rotation:Math.PI,upAxis:"z",label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
+  fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=51",height:5.25,rotation:Math.PI,upAxis:"z",label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
+  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=51",height:5.45,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
+  fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=51",height:5.35,rotation:Math.PI,upAxis:"z",label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
+  toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=51",height:4.1,rotation:Math.PI,upAxis:"z",label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
+  toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=51",height:4.35,rotation:Math.PI,upAxis:"z",label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
+  toyC:{url:"./assets/models/troops/toy-c/02_wanou_03.fbx?v=51",height:4.15,rotation:Math.PI,upAxis:"z",label:"玩偶兵·远程型",diffuse:"./assets/models/troops/toy-c/sugar001_threedoll_d.png"},
+  boss:{url:"./assets/models/troops/akainu/12110_U.fbx?v=51",height:7.25,rotation:Math.PI,upAxis:"z",label:"赤犬",diffuse:"./assets/models/troops/akainu/12010_Body_BC.png"}
 };
+// Role-to-asset mapping for the ordinary marine slots.  The three toy FBX
+// files are deliberately used here because they are the lightest true 3D
+// models in the uploaded library and are suitable for Android infantry.
+const TROOP_ROLE_ASSETS={sword:"toyA",gun:"toyC",shield:"toyB",captain:"garpCaptain",boss:"boss"};
+function troopAssetType(type){return TROOP_3D_ASSETS[type]?type:(TROOP_ROLE_ASSETS[type]||null);}
 const troopModelPromises=new Map(),troopTextureCache=new Map(),reportedModelFailures=new Set();
 function troopTexture(url){
   if(!url)return null;
@@ -907,26 +896,31 @@ function reportTroopModelFailure(type,error){
   console.error("[Troop3D] load failed",{type,url:asset?.url,error});
   if(reportedModelFailures.has(type))return;
   reportedModelFailures.add(type);
-  toast(`${asset?.label||type}模型加载失败，已保留3D备用兵模`,2200);
+  toast(`${asset?.label||type}模型加载失败，请检查网络或资源路径`,2200);
 }
 async function attachTroop3D(e){
-  const asset=TROOP_3D_ASSETS[e.type];if(!asset)return;
+  const assetType=e.assetType||troopAssetType(e.type),asset=TROOP_3D_ASSETS[assetType];if(!asset)return;
   e.model.userData.assetState="loading";
   try{
-    const prototype=await loadTroopPrototype(e.type);
+    const prototype=await loadTroopPrototype(assetType);
     if(!prototype||e.dead||!e.model.parent)return;
-    const actor=cloneSkeleton(prototype);actor.name=`${e.type}_LibraryModel`;actor.rotation.y=asset.rotation||0;
+    const actor=cloneSkeleton(prototype);actor.name=`${assetType}_LibraryModel`;
+    // FBX is Z-up while the game world is Y-up.  The old code measured the
+    // unrotated Y dimension, producing sideways and floating characters.
+    if(asset.upAxis==="z")actor.rotation.x=-Math.PI/2;
+    actor.rotation.y=asset.rotation||0;
     actor.updateMatrixWorld(true);
     let box=new THREE.Box3().setFromObject(actor),size=box.getSize(new THREE.Vector3());
     if(!Number.isFinite(size.y)||size.y<=.001)throw new Error(`${asset.label}尺寸无效`);
     actor.scale.multiplyScalar(asset.height/size.y);actor.updateMatrixWorld(true);
     box=new THREE.Box3().setFromObject(actor);actor.position.y-=box.min.y;
     actor.userData.baseY=actor.position.y;
-    e.model.add(actor);e.libraryModel=actor;e.model.userData.assetState="ready";
+    setupTroopRig(actor,assetType);
+    e.model.add(actor);e.libraryModel=actor;e.model.userData.assetState="ready";e.model.visible=true;
     (e.model.userData.fallbackMeshes||[]).forEach(mesh=>mesh.visible=false);
-    console.info("[Troop3D] actor attached",{type:e.type,height:asset.height});
+    console.info("[Troop3D] actor attached",{type:e.type,assetType,height:asset.height});
   }catch(error){
-    e.model.userData.assetState="failed";reportTroopModelFailure(e.type,error);
+    e.model.userData.assetState="failed";reportTroopModelFailure(assetType,error);
   }
 }
 
@@ -985,7 +979,7 @@ function updateTargetLock(dt){
   }
 }
 function spawnEnemy(type="sword",x=0,z=0){
-  const s=STATS[type]||STATS.sword,combatType=TROOP_BASE[type]||type,model=createMarineModel(combatType,false);
+  const s=STATS[type]||STATS.sword,combatType=TROOP_BASE[type]||type,assetType=troopAssetType(type),model=createMarineModel(combatType,false);
   if(type!==combatType){
     const accent=s.color;
     add(model,new THREE.TorusGeometry(type.startsWith("toy")?.58:.86,.11,7,18),toon(accent,accent),0,type.startsWith("toy")?3.15:4.58,.35,Math.PI/2);
@@ -996,9 +990,11 @@ function spawnEnemy(type="sword",x=0,z=0){
   }
   model.userData.fallbackMeshes=[];model.traverse(node=>{if(node.isMesh)model.userData.fallbackMeshes.push(node);});
   rigActor(model);
-  if(type==="sword"||type==="gun"||type==="captain")addMarineSprite(model,type);
+  // Do not render the old procedural/sprite placeholder.  The actor becomes
+  // visible only after its real uploaded FBX is loaded and ground-corrected.
+  model.visible=false;
   model.position.set(x,0,z);model.userData.rig.last.copy(model.position); scene.add(model);
-  const e={id:state.nextId++,type,combatType,model,pos:model.position,hp:s.hp,maxHp:s.hp,speed:s.speed,
+  const e={id:state.nextId++,type,combatType,assetType,model,pos:model.position,hp:s.hp,maxHp:s.hp,speed:s.speed,
     damage:s.damage,range:s.range,attackCd:.5+Math.random(),stun:0,dead:false,
     animSprite:model.userData.animSprite||null,animName:"idle",animTime:0,
     attackActive:false,attackAnimTime:0,attackHitDone:false,attackKind:null,
@@ -1009,8 +1005,8 @@ function spawnEnemy(type="sword",x=0,z=0){
 function spawnBoss(){
   const model=createMarineModel("captain",true);
   model.userData.fallbackMeshes=[];model.traverse(node=>{if(node.isMesh)model.userData.fallbackMeshes.push(node);});
-  rigActor(model); model.position.set(0,0,-48); scene.add(model);
-  const e={id:state.nextId++,type:"boss",model,pos:model.position,hp:720,maxHp:720,speed:2.7,damage:30,
+  rigActor(model); model.visible=false; model.position.set(0,0,-48); scene.add(model);
+  const e={id:state.nextId++,type:"boss",assetType:"boss",model,pos:model.position,hp:720,maxHp:720,speed:2.7,damage:30,
     range:3.3,attackCd:2,stun:0,dead:false,phase2:false,ultimate:false,bar:addHealthBar(model,3.2,7.65)};
   e.bar.visible=false;
   state.enemies.push(e); state.boss=e; ui.bossWrap.classList.remove("hidden");
@@ -1269,141 +1265,66 @@ function rigActor(root){
   }
   root.userData.rig=rig;
 }
-function cloneMarineTexture(base){
-  const map=base.clone();
-  map.needsUpdate=true;
-  map.wrapS=map.wrapT=THREE.RepeatWrapping;
-  map.magFilter=THREE.LinearFilter;
-  map.minFilter=THREE.LinearMipmapLinearFilter;
-  map.anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
-  return map;
-}
-function syncMarineTexture(map,name){
-  if(!map)return;
-  const source=marineAnimTextures[name];
-  // TextureLoader finishes asynchronously.  Copy its image onto clones that
-  // were made before the network response so the first spawned wave also
-  // renders correctly on slower phones.
-  // Texture.clone() may share the source image object with the loader.  In
-  // that case the clone updates automatically; only copy for an independent
-  // source created before the asynchronous loader response.
-  if(source?.image&&map.image!==source.image&&map.source!==source.source){map.image=source.image;map.needsUpdate=true;}
-}
-function setMarineSpriteFrame(sprite,map,frame){
-  if(!sprite||!map)return;
-  const index=clamp(Math.floor(frame),0,7),col=index%4,row=Math.floor(index/4);
-  const padX=.004,padY=.007;
-  map.repeat.set(.25-padX*2,.5-padY*2);
-  map.offset.set(col*.25+padX,row===0?.5+padY:padY);
-  if(sprite.material.map!==map){sprite.material.map=map;sprite.material.needsUpdate=true;}
-}
-function addMarineSprite(model,type){
-  // The generated atlas becomes the readable character silhouette.  Hide the
-  // old low-poly pieces but keep the root, shadow and health bar structure.
-  model.traverse(o=>{if(o.isMesh)o.visible=false;});
-  const maps={};
-  Object.entries(marineAnimTextures).forEach(([name,base])=>{maps[name]=cloneMarineTexture(base);});
-  const material=new THREE.SpriteMaterial({
-    map:maps.walk,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
-    color:0xffffff,toneMapped:false,opacity:1
+const TROOP_BONE_ALIASES={
+  pelvis:["Bip001_Pelvis"],spine:["Bip001_Spine"],chest:["Bip001_Spine1"],neck:["Bip001_Neck"],head:["Bip001_Head"],
+  lUpperArm:["Bip001_L_UpperArm","Bip001_LUpArmTwist"],rUpperArm:["Bip001_R_UpperArm","Bip001_RUpArmTwist"],
+  lForearm:["Bip001_L_Forearm","Bip001_L_ForeTwist"],rForearm:["Bip001_R_Forearm","Bip001_R_ForeTwist"],
+  lHand:["Bip001_L_Hand"],rHand:["Bip001_R_Hand"],
+  lThigh:["Bip001_L_Thigh"],rThigh:["Bip001_R_Thigh"],lCalf:["Bip001_L_Calf"],rCalf:["Bip001_R_Calf"],
+  lFoot:["Bip001_L_Foot"],rFoot:["Bip001_R_Foot"]
+};
+function setupTroopRig(actor,assetType){
+  const bones={},base=new Map(),materials=[];
+  Object.entries(TROOP_BONE_ALIASES).forEach(([key,names])=>{
+    const bone=names.map(name=>actor.getObjectByName(name)).find(Boolean);
+    if(bone){bones[key]=bone;if(!base.has(bone))base.set(bone,{position:bone.position.clone(),quaternion:bone.quaternion.clone(),scale:bone.scale.clone()});}
   });
-  const sprite=new THREE.Sprite(material);
-  const rootScale=model.scale.x||1;
-  const worldHeight=type==="captain"?6.0:5.35;
-  sprite.center.set(.5,0);
-  sprite.position.set(0,0,0);
-  sprite.scale.set(worldHeight*.74/rootScale,worldHeight/rootScale,1);
-  sprite.renderOrder=3;sprite.frustumCulled=false;model.add(sprite);
-  const depthMaterial=new THREE.SpriteMaterial({
-    map:maps.walk,transparent:true,alphaTest:.08,depthTest:true,depthWrite:false,
-    color:0x132f43,toneMapped:false,opacity:.32
+  actor.traverse(node=>{
+    if(!node.isMesh)return;
+    const list=Array.isArray(node.material)?node.material:[node.material];
+    list.forEach(material=>{if(material)materials.push({material,emissive:material.emissive?.clone(),intensity:material.emissiveIntensity??0});});
   });
-  const depthSprite=new THREE.Sprite(depthMaterial);
-  depthSprite.center.set(.5,0);depthSprite.position.set(-.09,.04,-.07);
-  depthSprite.scale.copy(sprite.scale);depthSprite.renderOrder=2;depthSprite.frustumCulled=false;model.add(depthSprite);
-  const rimMaterial=new THREE.SpriteMaterial({
-    map:maps.walk,transparent:true,alphaTest:.02,depthTest:true,depthWrite:false,
-    color:0x76dcff,toneMapped:false,opacity:.22,blending:THREE.AdditiveBlending
-  });
-  const rimSprite=new THREE.Sprite(rimMaterial);
-  rimSprite.center.set(.5,0);rimSprite.position.set(.09,.05,-.14);rimSprite.scale.set(worldHeight*.78/rootScale,worldHeight*1.04/rootScale,1);
-  rimSprite.renderOrder=1;rimSprite.frustumCulled=false;model.add(rimSprite);
-  const shadow=add(model,new THREE.CircleGeometry(.92,28),new THREE.MeshBasicMaterial({
-    color:0x07131c,transparent:true,opacity:type==="captain"?.34:.25,depthWrite:false
-  }),0,.045,0,-Math.PI/2);
-  shadow.scale.set(type==="captain"?1.45:1.2,.62,1);shadow.castShadow=false;shadow.receiveShadow=false;shadow.renderOrder=1;
-  model.userData.animSprite=sprite;
-  model.userData.animDepthSprite=depthSprite;
-  model.userData.animRimSprite=rimSprite;
-  model.userData.animShadow=shadow;
-  model.userData.animMaps=maps;
-  model.userData.animName="idle";
-  setupSpineStyleRig(model,sprite,depthSprite,rimSprite,"marine");
-  setMarineSpriteFrame(sprite,maps.walk,0);
+  actor.userData.troopRig={assetType,bones,base,materials,phase:Math.random()*Math.PI*2};
 }
-function setMarineAnimation(e,name,force=false){
-  const sprite=e.model?.userData.animSprite;if(!sprite)return;
-  const next=MARINE_ANIM_CLIPS[name]?name:"idle";
-  if(!force&&e.animName===next)return;
-  e.animName=next;e.animTime=0;
-  const clip=MARINE_ANIM_CLIPS[next],maps=e.model.userData.animMaps;
-  const map=maps?.[clip.texture]||maps?.walk;
-  syncMarineTexture(map,clip.texture);
-  const depth=e.model.userData.animDepthSprite;
-  if(depth){depth.material.map=map;depth.material.needsUpdate=true;}
-  const rim=e.model.userData.animRimSprite;
-  if(rim){rim.material.map=map;rim.material.needsUpdate=true;}
-  setMarineSpriteFrame(sprite,map,0);
-}
-function updateMarineSprite(e,dt){
-  const sprite=e.model.userData.animSprite;if(!sprite)return;
-  const name=e.animName||"idle",clip=MARINE_ANIM_CLIPS[name]||MARINE_ANIM_CLIPS.idle;
-  e.animTime=(e.animTime||0)+dt;
-  const frame=name==="idle"?0:(clip.loop
-    ?Math.floor(e.animTime*clip.fps)%8
-    :Math.min(7,Math.floor(e.animTime*clip.fps)));
-  const map=e.model.userData.animMaps?.[clip.texture]||e.model.userData.animMaps?.walk;
-  syncMarineTexture(map,clip.texture);
-  const flashing=(e.hitFlash||0)>0&&Math.floor(state.time*28)%2===0;
-  const depth=e.model.userData.animDepthSprite;
-  if(depth&&depth.material.map!==map){depth.material.map=map;depth.material.needsUpdate=true;}
-  const rim=e.model.userData.animRimSprite;
-  if(rim&&rim.material.map!==map){rim.material.map=map;rim.material.needsUpdate=true;}
-  const phase=e.animTime*(name==="walk"?Math.PI*2*1.05:Math.PI*1.25);
-  const moving=name==="walk",actionPulse=name==="saberAttack"||name==="rifleFire"?Math.sin(Math.PI*clamp(e.animTime,0,1)):0;
-  sprite.position.y=(moving?Math.abs(Math.sin(phase))*.075:actionPulse*.045);
-  sprite.position.x=actionPulse>0?Math.sin(Math.PI*clamp(e.animTime,0,1))*.055:0;
-  sprite.rotation.z=moving?Math.sin(phase)*.018:actionPulse*.035;
-  if(depth){
-    depth.position.x=sprite.position.x-.09;depth.position.y=sprite.position.y+.04;depth.rotation.copy(sprite.rotation);depth.scale.copy(sprite.scale);
-    depth.material.opacity=(flashing?.86:1)*.32;
+function updateTroopRig(actor,dt,moving,attackProgress,attackKind,hurt){
+  const rig=actor?.userData?.troopRig;if(!rig)return;
+  rig.phase+=dt*(moving?7.6:1.8);
+  const delta=new Map();
+  const add=(key,x=0,y=0,z=0)=>{if(!rig.bones[key])return;const d=delta.get(key)||[0,0,0];d[0]+=x;d[1]+=y;d[2]+=z;delta.set(key,d);};
+  const walk=moving?Math.sin(rig.phase)*.34:0;
+  const breathe=Math.sin(state.time*2.1+rig.phase)*.018;
+  add("spine",0,0,breathe);add("chest",breathe*.35,0,0);add("head",0,Math.sin(state.time*1.4+rig.phase)*.012,0);
+  add("lThigh",walk,0,0);add("rThigh",-walk,0,0);
+  add("lCalf",Math.max(0,-walk)*.42,0,0);add("rCalf",Math.max(0,walk)*.42,0,0);
+  add("lUpperArm",-walk*.72,0,0);add("rUpperArm",walk*.72,0,0);
+  add("lForearm",-walk*.18,0,0);add("rForearm",walk*.18,0,0);
+  const attack=clamp(attackProgress,0,1),pulse=attack>0?Math.sin(Math.PI*attack):0;
+  if(pulse){
+    if(attackKind==="gun"){
+      add("rUpperArm",-1.05*pulse,0,-.18*pulse);add("rForearm",-.72*pulse,0,0);add("lUpperArm",-.35*pulse,0,.12*pulse);add("spine",0,.08*pulse,0);
+    }else{
+      add("rUpperArm",-1.35*pulse,0,-.32*pulse);add("rForearm",-.92*pulse,0,0);add("lUpperArm",.42*pulse,0,.12*pulse);add("spine",0,.13*pulse,0);
+    }
   }
-  const shadow=e.model.userData.animShadow;
-  if(shadow){const lift=moving?Math.abs(Math.sin(phase))*.08:actionPulse*.04;shadow.scale.x=(e.type==="captain"?1.45:1.2)+lift*.8;shadow.scale.y=.62-lift*.25;}
-  // Reuse the computed flash state for the rim layer.  The previous call
-  // referenced an undeclared `flash` variable, which stopped the animation
-  // loop on the first marine tick and left only the HUD over a blank canvas.
-  updateSpineStyleRig(e.model,{moving,action:name,progress:clip.loop?0:clamp(e.animTime,0,1),look:e.model.rotation.y,flash:flashing,buff:false});
-  setMarineSpriteFrame(sprite,map,frame);
-  sprite.material.color.setHex(flashing?0xffb2a8:0xffffff);
-  sprite.material.opacity=flashing?.86:1;
-  if(!clip.loop&&e.animTime>=1){
-    e.attackActive=false;e.attackAnimTime=0;e.attackTargetRef=null;
-    setMarineAnimation(e,"idle",true);
-  }
+  const hit=hurt>0?Math.sin(Math.PI*clamp(hurt,0,1)):0;
+  if(hit){add("spine",0,0,.23*hit);add("chest",-.18*hit,0,0);add("head",-.12*hit,0,.08*hit);add("lUpperArm",0,0,.22*hit);add("rUpperArm",0,0,-.22*hit);}
+  for(const [bone,pose] of rig.base){bone.position.copy(pose.position);bone.quaternion.copy(pose.quaternion);bone.scale.copy(pose.scale);}
+  delta.forEach((d,key)=>{const bone=rig.bones[key],pose=rig.base.get(bone);if(!pose)return;bone.quaternion.copy(pose.quaternion);bone.rotateX(d[0]);bone.rotateY(d[1]);bone.rotateZ(d[2]);});
+  const flashing=(actor.parent?.userData?.hitFlash||0)>0;
+  rig.materials.forEach(entry=>{
+    if(!entry.material.emissive)return;
+    if(flashing){entry.material.emissive.setHex(0x8b2118);entry.material.emissiveIntensity=.42;}
+    else{if(entry.emissive)entry.material.emissive.copy(entry.emissive);entry.material.emissiveIntensity=entry.intensity;}
+  });
 }
-function disposeMarineSprite(model){
-  const sprite=model?.userData?.animSprite;if(!sprite)return;
-  Object.values(model.userData.animMaps||{}).forEach(map=>map.dispose());
-  sprite.material.dispose();
-  const depth=model.userData.animDepthSprite;
-  if(depth){depth.material.dispose();depth.geometry.dispose();}
-  const rim=model.userData.animRimSprite;
-  if(rim){rim.material.dispose();rim.geometry.dispose();}
-  const shadow=model.userData.animShadow;
-  if(shadow){shadow.material.dispose();shadow.geometry.dispose();}
-  model.userData.animSprite=null;model.userData.animDepthSprite=null;model.userData.animRimSprite=null;model.userData.animShadow=null;model.userData.animMaps=null;
+function rotateTroopToward(root,target,dt,rate=9){
+  const current=root.rotation.y,diff=Math.atan2(Math.sin(target-current),Math.cos(target-current));
+  root.rotation.y+=diff*clamp(dt*rate,0,1);
 }
+// Kept as no-ops for the combat state machine while all visual enemy motion
+// now comes from the actual 3D FBX actor and its root-level hit/move pose.
+function setMarineAnimation(){}
+function disposeMarineSprite(){}
 function poseActor(root,dt,moving,attack=0,hurt=0){
   const rig=root.userData.rig;if(!rig)return;
   rig.phase+=dt*(moving?10:2);
@@ -1426,12 +1347,14 @@ function animateActors(dt){
     rig.last.copy(a.pos);
     a.model.userData.swing=Math.max(0,(a.model.userData.swing||0)-dt*2.8);
     a.model.userData.hurt=Math.max(0,(a.model.userData.hurt||0)-dt*3.5);
+    a.model.userData.hitFlash=a.hitFlash||0;
     poseActor(a.model,dt,moving,a.model.userData.swing,a.model.userData.hurt);
     if(a.libraryModel){
       const swing=a.model.userData.swing||0,hurt=a.model.userData.hurt||0;
       a.libraryModel.position.y=a.libraryModel.userData.baseY+(moving?Math.abs(Math.sin(state.time*7.5+a.id))*.055:0);
-      a.libraryModel.rotation.z=(swing?Math.sin(Math.PI*swing)*-.09:0)+(hurt?Math.sin(Math.PI*hurt)*.06:0);
-      a.libraryModel.rotation.x=hurt?Math.sin(Math.PI*hurt)*-.08:0;
+      const attackProgress=a.attackActive?clamp(a.attackAnimTime,0,1):0;
+      updateTroopRig(a.libraryModel,dt,moving,attackProgress,a.attackKind,hurt);
+      a.libraryModel.rotation.z=(swing?Math.sin(Math.PI*swing)*-.035:0)+(hurt?Math.sin(Math.PI*hurt)*.035:0);
     }
   }
 }
@@ -1514,7 +1437,7 @@ function resetGame(){
   state.exitMarker.visible=false; ui.bossWrap.classList.add("hidden"); ui.capture.classList.remove("hidden");
   const initial=[
     ["sword",-8,24],["sword",7,21],["gun",-17,13],["shield",16,8],["captain",0,3],
-    ["garpCaptain",-11,-5],["fakeNami",11,-9],["fakeLuffy",-19,-16],["fakeSniper",19,-21],
+    ["garpCaptain",-11,-5],["fakeNami",11,-9],["fakeSniper",19,-21],
     ["toyA",-8,-28],["toyB",1,-32],["toyC",10,-28]
   ];
   initial.forEach(v=>spawnEnemy(v[0],v[1],v[2]));
@@ -1715,6 +1638,7 @@ function beginEnemyAttack(e,target,kind){
   e.attackTarget=target.clone();
   e.attackTargetAlly=!!(state.ally&&target===state.ally.pos);
   e.attackTargetRef=e.attackTargetAlly?state.ally:state.player;
+  e.model.userData.swing=1;
   if(e.animSprite)setMarineAnimation(e,kind==="gun"?"rifleFire":"saberAttack",true);
 }
 function tickEnemyAttack(e,dt){
@@ -1732,6 +1656,7 @@ function tickEnemyAttack(e,dt){
   }
   if(e.attackAnimTime>=1){
     e.attackActive=false;e.attackAnimTime=0;e.attackTargetRef=null;
+    e.model.userData.swing=0;
     if(e.animSprite)setMarineAnimation(e,"idle",true);
   }
   return true;
@@ -1745,7 +1670,7 @@ function updateEnemies(dt){
     e.bar.lookAt(camera.position);const ratio=clamp(e.hp/e.maxHp,0,1);
     e.bar.userData.fill.scale.x=ratio;e.bar.userData.fill.position.x=-(1-ratio)*e.bar.userData.width/2;
     if(e.stun>0){
-      e.attackActive=false;e.attackAnimTime=0;e.attackTargetRef=null;
+      e.attackActive=false;e.attackAnimTime=0;e.attackTargetRef=null;e.model.userData.swing=0;
       if(e.animSprite)setMarineAnimation(e,"idle",true);
       e.model.rotation.z=Math.sin(state.time*18)*.025;return;
     }else e.model.rotation.z=0;
@@ -1753,7 +1678,7 @@ function updateEnemies(dt){
     if(e.type==="boss"){updateBoss(e,dt);return;}
     if(e.attackActive){tickEnemyAttack(e,dt);return;}
     const target=(state.phase==="defense"&&state.ally&&dist2D(e.pos,state.ally.pos)<dist2D(e.pos,p.pos)+4)?state.ally.pos:p.pos;
-    const to=target.clone().sub(e.pos);to.y=0;const d=to.length();if(d>.01)e.model.rotation.y=Math.atan2(to.x,to.z);
+    const to=target.clone().sub(e.pos);to.y=0;const d=to.length();if(d>.01)rotateTroopToward(e.model,Math.atan2(to.x,to.z),dt,11);
     if(e.combatType==="gun"&&d<18&&d>5){
       if(e.attackCd<=0){e.attackCd=2.0+Math.random()*.5;beginEnemyAttack(e,target,"gun");}
       else if(e.animSprite)setMarineAnimation(e,"idle");
@@ -1766,11 +1691,7 @@ function updateEnemies(dt){
       if(e.animSprite)setMarineAnimation(e,"walk");
     }else if(e.attackCd<=0){
       e.attackCd=e.combatType==="captain"?1.25:1.55;
-      if(e.animSprite)beginEnemyAttack(e,target,"melee");
-      else{
-        e.model.userData.swing=1;
-        if(state.ally&&target===state.ally.pos)hurtAlly(e.damage);else hurtPlayer(e.damage);
-      }
+      beginEnemyAttack(e,target,"melee");
     }else if(e.animSprite){
       setMarineAnimation(e,"idle");
     }
@@ -1779,7 +1700,7 @@ function updateEnemies(dt){
 }
 function updateBoss(e,dt){
   const p=state.player,to=p.pos.clone().sub(e.pos);to.y=0;const d=to.length();
-  e.model.rotation.y=Math.atan2(to.x,to.z);
+  rotateTroopToward(e.model,Math.atan2(to.x,to.z),dt,7);
   if(e.hp<e.maxHp*.5&&!e.phase2){
     e.phase2=true;e.speed=3.45;e.model.scale.multiplyScalar(1.08);pulse(e.pos,C.red,8);
     for(let i=0;i<5;i++)spawnEnemy(i%2?"sword":"gun",-12+i*6,-41-Math.abs(2-i)*2);
