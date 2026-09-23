@@ -292,7 +292,7 @@ function buildWorld(){
   const rim=new THREE.DirectionalLight(0x7cccf4,.72);rim.position.set(36,22,-44);scene.add(rim);
   const fortressLamp=new THREE.PointLight(0xffb04d,1.8,38,2);fortressLamp.position.set(0,10,-61);scene.add(fortressLamp);
 
-  const seaGeometry=new THREE.PlaneGeometry(180,210,36,44);
+  const seaGeometry=new THREE.PlaneGeometry(180,210,54,64);
   const seaColors=[],seaPosition=seaGeometry.attributes.position;
   const deep=new THREE.Color(0x155271),shallow=new THREE.Color(0x4caab7);
   for(let i=0;i<seaPosition.count;i++){
@@ -305,14 +305,6 @@ function buildWorld(){
   const seaMaterial=new THREE.MeshPhysicalMaterial({color:0xffffff,vertexColors:true,roughness:.31,metalness:.08,clearcoat:.6,clearcoatRoughness:.25,side:THREE.DoubleSide});
   const sea=add(world,seaGeometry,seaMaterial,0,-.42,-12,-Math.PI/2);
   sea.receiveShadow=false;
-  const waterWaves=[];
-  for(let i=0;i<18;i++){
-    const wave=add(world,new THREE.PlaneGeometry(12+(i%4)*7,.035),new THREE.MeshBasicMaterial({
-      color:i%3?0x89e1ef:0xd1faff,transparent:true,opacity:.14+(i%4)*.025,
-      blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide
-    }),((seeded(1200+i)*2-1)*62),-.34,(seeded(1310+i)*2-1)*78-7,-Math.PI/2,0,(seeded(1420+i)*2-1)*.18);
-    wave.userData.wavePhase=seeded(1500+i)*Math.PI*2;wave.userData.waveBaseX=wave.position.x;waterWaves.push(wave);
-  }
   const iceMaterial=standard(C.ice,.76,.025);iceMaterial.map=makeIceTexture();
   const ice=add(world,new THREE.PlaneGeometry(82,126,12,16),iceMaterial,0,0,-5,-Math.PI/2);
   ice.receiveShadow=true;
@@ -338,16 +330,18 @@ function buildWorld(){
     add(world,new THREE.BoxGeometry(.42,.18,124),toon(0x9bbbc1),side*40.45,1.22,-5);
     for(let i=0;i<10;i++)add(world,new THREE.CylinderGeometry(.18,.24,.8,8),toon(0x4d6671),side*40.35,.38,51-i*12);
   }
-  const foamMat=new THREE.MeshPhysicalMaterial({color:0xa4e5e9,emissive:0x164251,emissiveIntensity:.22,roughness:.35,transparent:true,opacity:.68,depthWrite:false,side:THREE.DoubleSide});
+  const foamMat=new THREE.MeshPhysicalMaterial({color:0x80cfdc,emissive:0x164251,emissiveIntensity:.2,roughness:.4,transparent:true,opacity:.5,depthWrite:false,side:THREE.DoubleSide});
   const foam=[];
   foam.push(add(world,new THREE.PlaneGeometry(78,1.25,48,2),foamMat.clone(),0,-.25,58.2,-Math.PI/2));
   foam.push(add(world,new THREE.PlaneGeometry(78,1.25,48,2),foamMat.clone(),0,-.25,-68.2,-Math.PI/2));
   foam.push(add(world,new THREE.PlaneGeometry(1.25,116,2,48),foamMat.clone(),-41.8,-.25,-5,-Math.PI/2));
   foam.push(add(world,new THREE.PlaneGeometry(1.25,116,2,48),foamMat.clone(),41.8,-.25,-5,-Math.PI/2));
   foam.forEach((f,i)=>{f.userData.wavePhase=i*1.7;f.userData.waveBaseX=f.position.x;f.userData.waveBaseZ=f.position.z;});
-  const surf=new THREE.BufferGeometry(),shoreCount=112;
-  surf.setAttribute("position",new THREE.BufferAttribute(new Float32Array(shoreCount*3),3));
-  const surfMesh=new THREE.Points(surf,new THREE.PointsMaterial({color:0xd8fbff,size:2.8,transparent:true,opacity:.88,depthWrite:false,blending:THREE.AdditiveBlending}));
+  const shoreCount=112,surfMesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.095,1),
+    new THREE.MeshPhysicalMaterial({color:0x9adfe8,emissive:0x194553,emissiveIntensity:.35,roughness:.25,transparent:true,opacity:.78,depthWrite:false}),shoreCount);
+  const sprayDummy=new THREE.Object3D();sprayDummy.scale.setScalar(0);sprayDummy.updateMatrix();
+  for(let i=0;i<shoreCount;i++)surfMesh.setMatrixAt(i,sprayDummy.matrix);
+  surfMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   surfMesh.frustumCulled=false;world.add(surfMesh);
   const shoreSpray=Array.from({length:shoreCount},(_,i)=>({age:seeded(9400+i)*1.8,life:.65+seeded(9600+i)*.65,
     pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4}));
@@ -428,7 +422,7 @@ function buildWorld(){
     const x=(seeded(600+i)*2-1)*38,z=(seeded(720+i)*2-1)*58-4;
     add(world,new THREE.TetrahedronGeometry(.35+seeded(800+i)*.75,0),toon(i%3?0xd8f7fb:0x75c8d8),x,.18,z,0,seeded(910+i)*Math.PI,0);
   }
-  world.userData.environment={sea,waterWaves,foam,shoreSpray,surfMesh,weatherDrops,cloudMesh,gulls,
+  world.userData.environment={sea,foam,shoreSpray,surfMesh,sprayDummy,weatherDrops,cloudMesh,gulls,
     hemi,sun,rim,fortressLamp,cannons,weatherClock:0};
 }
 
@@ -568,20 +562,14 @@ function updateEnvironment(dt){
   const ocean=env.sea.geometry.attributes.position;
   for(let i=0;i<ocean.count;i++){
     const x=ocean.getX(i),z=ocean.getY(i),t=state.time;
-    ocean.setZ(i,Math.sin(x*.115+z*.035+t*1.25)*.11+Math.sin(z*.17-x*.046-t*1.72)*.08);
+    ocean.setZ(i,Math.sin(x*.115+z*.035+t*1.25)*.18+Math.sin(z*.17-x*.046-t*1.72)*.1);
   }
   ocean.needsUpdate=true;
   env.normalTimer=(env.normalTimer||0)+dt;
   if(env.normalTimer>.12){env.sea.geometry.computeVertexNormals();env.normalTimer=0;}
-  env.waterWaves?.forEach((wave,i)=>{
-    const q=state.time*.62+wave.userData.wavePhase;
-    wave.position.x=wave.userData.waveBaseX+Math.sin(q)*.85;
-    wave.position.y=-.34+Math.sin(q*1.7)*.018;
-    wave.material.opacity=(.12+(i%4)*.025)*(0.82+Math.sin(q)*.18);
-  });
   env.foam?.forEach((foam,i)=>{
     const q=state.time*1.7+foam.userData.wavePhase,pulse=Math.max(0,Math.sin(q));
-    foam.material.opacity=.36+pulse*.38;
+    foam.material.opacity=.22+pulse*.3;
     foam.position.x=foam.userData.waveBaseX+(i>1?(i===2?-1:1)*pulse*.4:0);
     foam.position.z=foam.userData.waveBaseZ+(i<2?(i===0?1:-1)*pulse*.4:0);
     const verts=foam.geometry.attributes.position;
@@ -594,12 +582,12 @@ function updateEnvironment(dt){
     verts.needsUpdate=true;
     foam.geometry.computeVertexNormals();
   });
-  const spray=env.shoreSpray,positions=env.surfMesh.geometry.attributes.position.array;
+  const spray=env.shoreSpray,dummy=env.sprayDummy;
   spray.forEach((particle,i)=>{
     particle.age+=dt;
     if(particle.age>=particle.life){
       const pulse=Math.max(0,Math.sin(state.time*1.7+particle.edge*1.7));
-      if(pulse<.45){positions[i*3+1]=-50;return;}
+      if(pulse<.45){dummy.scale.setScalar(0);dummy.updateMatrix();env.surfMesh.setMatrixAt(i,dummy.matrix);return;}
       particle.age=0;particle.life=.5+seeded(state.time*7+i*19)*.72;
       const edge=particle.edge;
       particle.pos.set((seeded(i*3+Math.floor(state.time*1.8))*2-1)*76,-.12,(edge===0?57.2:edge===1?-67.2:(seeded(i*5)*2-1)*118-5));
@@ -607,11 +595,12 @@ function updateEnvironment(dt){
       particle.vel.set((seeded(i*13+state.time)*2-1)*.65,.9+seeded(i*17)*1.35,(edge===0?.8:edge===1?-.8:0));
     }
     particle.pos.addScaledVector(particle.vel,dt);particle.vel.y-=2.7*dt;
-    const q=particle.age/particle.life,j=i*3;
-    positions[j]=particle.pos.x;positions[j+1]=particle.pos.y;positions[j+2]=particle.pos.z;
-    if(q>1)positions[j+1]=-50;
+    const q=particle.age/particle.life;
+    dummy.position.copy(particle.pos);
+    dummy.scale.setScalar(Math.max(.05,Math.sin(Math.PI*q))*(.55+seeded(i*6.1)*.9));
+    dummy.updateMatrix();env.surfMesh.setMatrixAt(i,dummy.matrix);
   });
-  env.surfMesh.geometry.attributes.position.needsUpdate=true;
+  env.surfMesh.instanceMatrix.needsUpdate=true;
   if(env.fortressLamp)env.fortressLamp.intensity=1.65+Math.sin(state.time*1.6)*.18;
 }
 
@@ -768,6 +757,20 @@ function turnBone(entry,x=0,y=0,z=0){
   const angles=[x,y,z];
   for(let i=0;i<3;i++)if(angles[i])entry.bone.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(entry.axes[i],angles[i]));
 }
+function normalizeCharacterSkeleton(model){
+  const root=model.getObjectByName("Bip001"),hips=model.getObjectByName("Bip001_Pelvis"),head=model.getObjectByName("Bip001_Head");
+  if(!root||!hips||!head)return false;
+  model.updateMatrixWorld(true);
+  const delta=head.getWorldPosition(new THREE.Vector3()).sub(hips.getWorldPosition(new THREE.Vector3()));
+  // Exported mesh vertices are Z-up, but Bip001 bones arrive Y-up. Rotating
+  // the skeleton and rebuilding the inverse bind poses keeps the resting mesh
+  // unchanged while moving shoulder pivots onto the visible shoulders.
+  if(Math.abs(delta.y)<Math.abs(delta.z)*1.5)return false;
+  root.rotation.x+=Math.PI/2;
+  model.updateMatrixWorld(true);
+  model.traverse(node=>{if(node.isSkinnedMesh)node.skeleton.calculateInverses();});
+  return true;
+}
 function setupFilmRedProceduralRig(model){
   model.updateMatrixWorld(true);
   const names={
@@ -832,6 +835,7 @@ function parseCharacterFBX(buffer,path){
     const materials=Array.isArray(node.material)?node.material:[node.material];
     materials.forEach(material=>{if(material){material.vertexColors=false;material.needsUpdate=true;}});
   });
+  normalizeCharacterSkeleton(model);
   if(repairedWarnings)console.info("[FBX] repaired invalid exporter color mapping",repairedWarnings);
   return model;
 }
@@ -1378,16 +1382,16 @@ function spawnFirstPersonFx(kind){
   const colors={basic:0xe38839,combo:0xffba49,rocketPunch:0xd4542e,burst:0xf17229,
     axe:0xd85b2e,rocket:0xfa842a,giant:0xc53e35,haki:0x6d4bb8,dodge:0x4d9fbc};
   const color=colors[kind]||C.orange,total=FIRST_PERSON_ACTIONS[kind]?.duration||.42;
-  const size=kind==="giant"?1.7:kind==="haki"||kind==="burst"?1.3:kind==="basic"?.68:1;
+  const size=kind==="giant"?1.8:kind==="haki"||kind==="burst"?1.4:kind==="basic"?1:1.15;
   const material=(hex,opacity)=>new THREE.MeshBasicMaterial({color:hex,transparent:true,opacity,
     depthTest:false,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide});
-  const core=new THREE.Mesh(new THREE.IcosahedronGeometry(.25*size,1),material(color,.66));
+  const core=new THREE.Mesh(new THREE.IcosahedronGeometry(.34*size,1),material(color,.9));
   core.position.set(kind==="haki"?0:.28,-.16,-.12);addFirstPersonFxMesh(core,"core",total,size);
-  const halo=new THREE.Mesh(new THREE.TorusGeometry(.3*size,.08*size,7,20),material(color,.57));
+  const halo=new THREE.Mesh(new THREE.TorusGeometry(.48*size,.14*size,9,26,Math.PI*1.65),material(color,.82));
   halo.position.copy(core.position);halo.rotation.set(.55,.55,0);
   addFirstPersonFxMesh(halo,"halo",total,size,3);
-  if(kind!=="dodge"&&kind!=="basic"){
-    const trail=new THREE.Mesh(new THREE.ConeGeometry(.17*size,.75*size,8),material(color,.42));
+  if(kind!=="dodge"){
+    const trail=new THREE.Mesh(new THREE.ConeGeometry(.27*size,1.3*size,12),material(color,.68));
     trail.position.copy(core.position).add(new THREE.Vector3(0,0,-.45*size));trail.rotation.x=-Math.PI/2;
     addFirstPersonFxMesh(trail,"trail",total,size);
   }
@@ -2039,6 +2043,30 @@ function spawnMeleeArc(pos,dir,color,size=1){
   const arc=new THREE.Mesh(new THREE.TorusGeometry(size*.78,.16,8,26,Math.PI*1.22),mat);
   arc.position.copy(pos).add(new THREE.Vector3(0,1.45,0));arc.rotation.set(Math.PI/2,Math.atan2(dir.x,dir.z),0);
   addWorldEffect(arc,.34,"custom",{ownedMaterial:true,update:f=>{const q=1-f.time/f.total;f.mesh.scale.setScalar(.45+q*1.35);f.mesh.material.opacity=.92*(1-q);f.mesh.rotation.z+=.7*.016;}});
+  spawnAttackFlare(pos,dir,color,size);
+}
+function spawnAttackFlare(pos,dir,color,power=1){
+  const root=new THREE.Group();root.position.copy(pos);root.position.y+=1.5;
+  root.rotation.y=Math.atan2(dir.x,dir.z);
+  const colors=[color,0xffaa42,0xd84530,0xffd16a];
+  for(let i=0;i<4;i++){
+    const material=new THREE.MeshStandardMaterial({color:colors[i],emissive:colors[i],emissiveIntensity:1.65,
+      roughness:.34,transparent:true,opacity:.83,depthWrite:false,side:THREE.DoubleSide});
+    const flame=new THREE.Mesh(new THREE.ConeGeometry((.2+i*.035)*power,(.95+i*.17)*power,9,1),material);
+    const angle=(i/4)*Math.PI*1.65-Math.PI*.8;
+    flame.position.set(Math.cos(angle)*.5*power,Math.sin(angle)*.38*power,-.35-i*.13);
+    flame.rotation.z=angle-Math.PI/2;flame.rotation.x=.32;
+    root.add(flame);
+  }
+  const shock=new THREE.Mesh(new THREE.TorusGeometry(.73*power,.19*power,9,28,Math.PI*1.8),
+    new THREE.MeshStandardMaterial({color,emissive:color,emissiveIntensity:1.2,roughness:.22,transparent:true,opacity:.72,depthWrite:false}));
+  shock.rotation.x=.36;root.add(shock);
+  addWorldEffect(root,.48,"custom",{ownedMaterial:true,update:f=>{
+    const q=1-f.time/f.total;
+    f.mesh.scale.setScalar(.55+q*1.8);
+    f.mesh.position.y=pos.y+1.5+q*.28;
+    f.mesh.traverse(n=>{if(n.isMesh)n.material.opacity=(1-q)*.83;});
+  }});
 }
 function spawnSkillCharge(pos,color,kind="generic"){
   const root=new THREE.Group();root.position.copy(pos);root.position.y+=kind.startsWith("boss")?1.8:1.05;
@@ -2073,6 +2101,7 @@ function spawnImpactBurst(pos,color,options={}){
     addWorldEffect(shard,.45+Math.random()*.25,"velocity",{ownedMaterial:false,vel:v});
   }
   if(heavy){
+    spawnAttackFlare(new THREE.Vector3(pos.x,0,pos.z),new THREE.Vector3(0,0,1),color,Math.min(2.1,radius*.42));
     const outer=new THREE.Mesh(new THREE.TorusGeometry(radius*.68,.055,7,36),ringMat.clone());outer.rotation.x=-Math.PI/2;outer.position.set(pos.x,y+.03,pos.z);
     addWorldEffect(outer,.82,"custom",{ownedMaterial:true,update:f=>{const q=1-f.time/f.total;f.mesh.scale.setScalar(.25+q*1.65);f.mesh.material.opacity=.7*(1-q);}});
     spawnEnergyColumn(new THREE.Vector3(pos.x,0,pos.z),color,Math.min(6,radius*1.7));
