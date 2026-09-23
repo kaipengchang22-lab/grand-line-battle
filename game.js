@@ -1158,7 +1158,7 @@ const TROOP_3D_ASSETS={
   // Mesh vertices are Z-up; their FBX skeleton may already read as Y-up.
   garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=52",height:3.55,rotation:Math.PI,upAxis:"z",label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
   fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=52",height:2.9,rotation:Math.PI,upAxis:"z",label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
-  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=52",height:3.05,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
+  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=61",height:3.05,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
   fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=52",height:2.95,rotation:Math.PI,upAxis:"z",label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
   toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=52",height:2.5,rotation:Math.PI,upAxis:"z",label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
   toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=52",height:2.7,rotation:Math.PI,upAxis:"z",label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
