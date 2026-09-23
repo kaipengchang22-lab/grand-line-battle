@@ -17,15 +17,20 @@ const state={time:0,effects:[],hazards:[],enemies:[],player:{pos:new THREE.Vecto
 const scene=new THREE.Scene();
 let hits=0;
 const context=vm.createContext({THREE,FBXLoader,console,state,scene,WORLD_EFFECT_LIMIT:90,
-  PLAYER_3D_ASSET:{orientation:0},C:{red:0xff3333,orange:0xff9933},
+  PLAYER_3D_ASSET:{orientation:0},SKY_CLEAR:new THREE.Color(0x9fd5e4),SKY_STORM:new THREE.Color(0x526779),
+  C:{red:0xff3333,orange:0xff9933},
   clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),dist2D:(a,b)=>Math.hypot(a.x-b.x,a.z-b.z),
-  toon:color=>new THREE.MeshBasicMaterial({color}),hurtPlayer:()=>hits++,spawnEnemy:()=>{},toast:()=>{}});
+  seeded:n=>((Math.sin(n*999.41)*43758.5453)%1+1)%1,
+  toon:color=>new THREE.MeshBasicMaterial({color}),standard:color=>new THREE.MeshStandardMaterial({color}),
+  add:(parent,geo,mat,x=0,y=0,z=0,rx=0,ry=0,rz=0)=>{const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);m.rotation.set(rx,ry,rz);parent.add(m);return m;},
+  world:new THREE.Group(),hurtPlayer:()=>hits++,spawnEnemy:()=>{},toast:()=>{}});
 vm.runInContext(source.slice(source.indexOf('const TROOP_BONE_ALIASES='),source.indexOf('function setupTroopRig(')),context);
 for(const name of ['parseCharacterFBX','characterBoneAxes','bindBonePose','turnBone',
   'setupFilmRedProceduralRig','playPlayer3DAction','updatePlayer3D','setupTroopRig','updateTroopRig',
   'rotateTroopToward','disposeWorldEffect','pushWorldEffect','addWorldEffect','spawnSkillCharge',
   'dtSafe','spawnEnergyColumn','spawnImpactBurst','pulse','spawnCircleHazard','spawnLineHazard',
-  'updateHazards','updateEffects','updateBoss'])vm.runInContext(fn(name),context);
+  'updateHazards','updateEffects','updateBoss','makeRainField','makeCloudBank','makeGullFlock',
+  'makeVegetation','makeCannon','updateEnvironment'])vm.runInContext(fn(name),context);
 
 for(const file of ['film-red-luffy/luffy022_body_model.fbx','troops/toy-a/02_wanou_01.fbx','troops/toy-b/02_wanou_02.fbx','troops/toy-c/02_wanou_03.fbx','troops/garp/12002.fbx','troops/fake-nami/falsenami001_body.fbx','troops/fake-luffy/falseluffy001_body.fbx','troops/fake-sniper/falseusopp001_body.fbx','troops/akainu/12110_U.fbx']){
   const bytes=readFileSync(new URL('../assets/models/'+file,import.meta.url));
@@ -63,3 +68,23 @@ for(let i=0;i<3600;i++){
 }
 assert.ok(boss.phase2&&boss.ultimate);
 console.log('PASS 60-second CPU boss simulation',{peakEffects,peakHazards,hits});
+
+const plants=context.makeVegetation(),clouds=context.makeCloudBank(),gulls=context.makeGullFlock(),rain=context.makeRainField(190);
+assert.equal(plants.length,3);assert.ok(plants.every(mesh=>mesh.isInstancedMesh));assert.equal(clouds.count,24);assert.equal(gulls.length,5);
+for(const side of [-1,1]){
+  const cannon=context.makeCannon(side*36,0,side),forward=new THREE.Vector3(0,0,1).applyQuaternion(cannon.quaternion);
+  assert.ok(forward.x*side<-.99);assert.ok(cannon.children.some(node=>node.isGroup));
+}
+const waves=[new THREE.Mesh(new THREE.PlaneGeometry(8,1),new THREE.MeshBasicMaterial({opacity:.2}))];waves[0].userData.wavePhase=0;waves[0].userData.waveBaseX=0;
+const lights={hemi:new THREE.HemisphereLight(0xffffff,0x333333,2),sun:new THREE.DirectionalLight(0xffffff,3),rim:new THREE.DirectionalLight(0xffffff,1),fortressLamp:{intensity:1}};
+const env={seaMap:{offset:new THREE.Vector2()},waterWaves:waves,foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
+  surfMesh:new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float32Array(112*3),3)),new THREE.PointsMaterial()),
+  weatherDrops:rain,cloudMesh:clouds,gulls,...lights,weatherClock:0};
+context.scene.background=new THREE.Color(0x9fd5e4);context.scene.fog=new THREE.Fog(0x9fd5e4,48,125);context.world.userData.environment=env;
+let sawRain=false,sawClear=false;
+for(let i=0;i<94*30;i++){
+  state.time+=1/30;context.updateEnvironment(1/30);
+  sawRain ||= rain.mesh.visible;sawClear ||= !rain.mesh.visible;
+}
+assert.ok(sawRain&&sawClear);assert.ok(Array.from(env.surfMesh.geometry.attributes.position.array).every(Number.isFinite));
+console.log('PASS weather cycle, rain, seagulls, and instanced vegetation');
