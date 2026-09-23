@@ -1514,7 +1514,7 @@ function ultimate(){
   const fistMat=new THREE.MeshBasicMaterial({color:C.skin,transparent:true,opacity:.98});
   const fist=new THREE.Mesh(new THREE.IcosahedronGeometry(1.65,1),fistMat);
   fist.position.copy(point);fist.position.y=7.2;scene.add(fist);
-  addWorldEffect(fist,1.05,"custom",{ownedMaterial:true,update:f=>{const q=1-f.time/f.total;f.mesh.position.y=7.2-q*6.95;f.mesh.scale.setScalar(.55+q*1.15);f.mesh.rotation.x+=.08;f.mesh.rotation.z+=.06;f.mesh.material.opacity=.98*(q<.78?1:q<.92:1-(q-.92)*12);}});
+  addWorldEffect(fist,1.05,"custom",{ownedMaterial:true,update:f=>{const q=1-f.time/f.total;f.mesh.position.y=7.2-q*6.95;f.mesh.scale.setScalar(.55+q*1.15);f.mesh.rotation.x+=.08;f.mesh.rotation.z+=.06;f.mesh.material.opacity=.98*(q<.92?1:1-(q-.92)*12);}});
   spawnSkillCharge(point.clone().add(new THREE.Vector3(0,1.4,0)),C.gold,"giant");
   spawnImpactBurst(point,C.orange,{heavy:true,radius:4.6});
   scheduleCombat(.75,()=>{areaStrike(point,7,230);audio.tone(65,.3,"sawtooth",.05);});
