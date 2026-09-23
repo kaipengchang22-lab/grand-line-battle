@@ -50,7 +50,7 @@ const playerModelChoice=new URLSearchParams(location.search).get("model")||"film
 const PLAYER_3D_ASSET={
   "film-red":{
     type:"fbx",url:"./assets/models/film-red-luffy/luffy022_body_model.fbx?v=47",
-    textureRoot:"./assets/models/film-red-luffy/",scale:2.25,y:.56,orientation:Math.PI,
+    textureRoot:"./assets/models/film-red-luffy/",scale:1.35,y:.56,orientation:Math.PI,
     label:"路飞 Film Red · 32,549面 · 6个蒙皮网格"
   },
   original:{type:"gltf",url:"./assets/models/straw-hat-hero-original.glb?v=3",scale:1.85,y:0,orientation:0,label:"旧版测试主角"},
@@ -962,14 +962,14 @@ function addHealthBar(model,width=2.2,y=5.3){
 // failed request can never leave a floating health bar or a 2D placeholder.
 const TROOP_3D_ASSETS={
   // Mesh vertices are Z-up; their FBX skeleton may already read as Y-up.
-  garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=52",height:6.15,rotation:Math.PI,upAxis:"z",label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
-  fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=52",height:5.25,rotation:Math.PI,upAxis:"z",label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
-  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=52",height:5.45,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
-  fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=52",height:5.35,rotation:Math.PI,upAxis:"z",label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
-  toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=52",height:4.1,rotation:Math.PI,upAxis:"z",label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
-  toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=52",height:4.35,rotation:Math.PI,upAxis:"z",label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
-  toyC:{url:"./assets/models/troops/toy-c/02_wanou_03.fbx?v=52",height:4.15,rotation:Math.PI,upAxis:"z",label:"玩偶兵·远程型",diffuse:"./assets/models/troops/toy-c/sugar001_threedoll_d.png"},
-  boss:{url:"./assets/models/troops/akainu/12110_U.fbx?v=52",height:7.25,rotation:Math.PI,upAxis:"z",label:"赤犬",diffuse:"./assets/models/troops/akainu/12010_Body_BC.png"}
+  garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=52",height:3.55,rotation:Math.PI,upAxis:"z",label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
+  fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=52",height:2.9,rotation:Math.PI,upAxis:"z",label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
+  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=52",height:3.05,rotation:Math.PI,upAxis:"z",label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
+  fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=52",height:2.95,rotation:Math.PI,upAxis:"z",label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
+  toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=52",height:2.5,rotation:Math.PI,upAxis:"z",label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
+  toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=52",height:2.7,rotation:Math.PI,upAxis:"z",label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
+  toyC:{url:"./assets/models/troops/toy-c/02_wanou_03.fbx?v=52",height:2.55,rotation:Math.PI,upAxis:"z",label:"玩偶兵·远程型",diffuse:"./assets/models/troops/toy-c/sugar001_threedoll_d.png"},
+  boss:{url:"./assets/models/troops/akainu/12110_U.fbx?v=52",height:5.05,rotation:Math.PI,upAxis:"z",label:"赤犬",diffuse:"./assets/models/troops/akainu/12010_Body_BC.png"}
 };
 // Role-to-asset mapping for the ordinary marine slots.  The three toy FBX
 // files are deliberately used here because they are the lightest true 3D
@@ -1123,6 +1123,7 @@ function spawnEnemy(type="sword",x=0,z=0){
     attackActive:false,attackAnimTime:0,attackHitDone:false,attackKind:null,
     attackTarget:null,attackTargetRef:null,attackTargetAlly:false,hitFlash:0,
     bar:addHealthBar(model,2.15,type==="captain"||type==="garpCaptain"?6.3:(type.startsWith("toy")?4.45:5.3))};
+  if(assetType&&TROOP_3D_ASSETS[assetType])e.bar.position.y=(TROOP_3D_ASSETS[assetType].height+.38)/model.scale.y;
   state.enemies.push(e);attachTroop3D(e);return e;
 }
 function spawnBoss(){
