@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>伟大航路：本部决战 · 第一人称3D</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./style.css?v=52">
+  <link rel="stylesheet" href="./style.css?v=53">
 </head>
 <body>
   <canvas id="gameCanvas"></canvas>
@@ -23,7 +23,7 @@
       <div class="start-features">
         <span>◉ 左摇杆只负责移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
       </div>
-      <small>V52 · 3D敌兵骨骼与动作优化版</small>
+      <small>V53 · 主角与敌人技能姿势、冲击特效优化版</small>
     </div>
   </section>
 
@@ -72,6 +72,7 @@
     <div class="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
     <div id="toast"></div>
     <div id="damageLayer"></div>
+    <div id="impactFlash"></div>
     <div id="redFlash"></div>
 
     <div id="lookZone"><span>在此滑动转向</span></div>
@@ -113,6 +114,6 @@
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js" } }
   </script>
-  <script type="module" src="./game.js?v=52"></script>
+  <script type="module" src="./game.js?v=53"></script>
 </body>
 </html>
