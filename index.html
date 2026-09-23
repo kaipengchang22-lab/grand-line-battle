@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>伟大航路：本部决战 · 第一人称3D</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./style.css?v=11">
+  <link rel="stylesheet" href="./style.css?v=48">
 </head>
 <body>
   <canvas id="gameCanvas"></canvas>
@@ -23,7 +23,7 @@
       <div class="start-features">
         <span>◉ 左摇杆只负责移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
       </div>
-      <small>V28 · 真3D角色独立测试 · 普通版保持稳定</small>
+      <small>V48 · 模型库兵种接入 · 锁定与Boss HUD修复版</small>
     </div>
   </section>
 
@@ -50,8 +50,14 @@
     </header>
 
     <div id="bossWrap" class="boss hidden">
-      <b>本部大将 · 钢拳统帅</b>
+      <b>本部大将 · 赤犬</b>
       <div class="bar"><i id="bossFill"></i><span id="bossText">720 / 720</span></div>
+    </div>
+
+    <div id="targetWrap" class="target-status hidden">
+      <small>当前锁定</small>
+      <b id="targetName">无</b>
+      <span id="targetDistance"></span>
     </div>
 
     <div id="captureWrap" class="capture">
@@ -107,6 +113,6 @@
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js" } }
   </script>
-  <script type="module" src="./game.js?v=28"></script>
+  <script type="module" src="./game.js?v=48"></script>
 </body>
 </html>

@@ -1,5 +1,7 @@
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/loaders/GLTFLoader.js";
+import { FBXLoader } from "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/loaders/FBXLoader.js";
+import { clone as cloneSkeleton } from "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/utils/SkeletonUtils.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("gameCanvas");
@@ -11,7 +13,9 @@ const ui = {
   captureText: $("captureText"), toast: $("toast"), redFlash: $("redFlash"),
   result: $("resultScreen"), resultTitle: $("resultTitle"), resultStats: $("resultStats"),
   restartBtn: $("restartBtn"), pauseBtn: $("pauseBtn"), viewBtn: $("viewBtn"),
-  radar: $("radar"), joystick: $("joystick"), stick: $("stick"), lookZone: $("lookZone")
+  radar: $("radar"), joystick: $("joystick"), stick: $("stick"), lookZone: $("lookZone"),
+  targetWrap: $("targetWrap"), targetName: $("targetName"), targetDistance: $("targetDistance"),
+  crosshair: document.querySelector(".crosshair")
 };
 
 const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false, powerPreference:"high-performance"});
@@ -40,23 +44,29 @@ const C = {
   skin2:0xb96f50, brown:0x623a2c, black:0x111924, green:0x35c48d, purple:0x7d57d1
 };
 const mats = new Map();
-// GLB choices are opt-in so the default mobile character stays stable.
-const playerModelChoice=new URLSearchParams(location.search).get("model");
+// Film Red is now the production default. The previous GLBs remain available
+// through ?model=original and ?model=rigged-luffy for regression testing.
+const playerModelChoice=new URLSearchParams(location.search).get("model")||"film-red";
 const PLAYER_3D_ASSET={
-  original:{url:"./assets/models/straw-hat-hero-original.glb?v=3",scale:1.85,y:0,orientation:0},
+  "film-red":{
+    type:"fbx",url:"./assets/models/film-red-luffy/luffy022_body_model.fbx?v=47",
+    textureRoot:"./assets/models/film-red-luffy/",scale:2.25,y:.56,orientation:Math.PI,
+    label:"路飞 Film Red · 32,549面 · 6个蒙皮网格"
+  },
+  original:{type:"gltf",url:"./assets/models/straw-hat-hero-original.glb?v=3",scale:1.85,y:0,orientation:0,label:"旧版测试主角"},
   "rigged-luffy":{
-    url:"./assets/models/luffy-semirealistic-rigged-animated.glb?v=1",scale:.78,y:.663,
+    type:"gltf",url:"./assets/models/luffy-semirealistic-rigged-animated.glb?v=1",scale:.78,y:.663,
     // This GLB faces -Z; the existing sprite root faces +Z.
-    orientation:Math.PI
+    orientation:Math.PI,label:"半写实测试路飞"
   }
 }[playerModelChoice]||null;
-const modelTestStatus=playerModelChoice==="rigged-luffy"?document.createElement("div"):null;
+const modelTestStatus=PLAYER_3D_ASSET?document.createElement("div"):null;
 if(modelTestStatus){
   modelTestStatus.id="modelTestStatus";
   modelTestStatus.textContent="3D模型加载中…";
   ui.hud.append(modelTestStatus);
 }
-let modelTestMessage="3D模型加载中…";
+let modelTestMessage=(PLAYER_3D_ASSET?.label||"3D模型")+" · 加载中…";
 let modelTestFrames=0,modelTestLastTime=performance.now();
 const playerSpriteTexture=new THREE.TextureLoader().load("./assets/luffy-sprite-atlas.webp");
 playerSpriteTexture.colorSpace=THREE.SRGBColorSpace;
@@ -209,6 +219,7 @@ const state = {
     speed:9.2, cooldowns:{attack:0,dodge:0,s1:0,s2:0,s3:0,s4:0,s5:0,ultimate:0,haki:0}, dodge:0, invuln:0,
     buff:0, attackAnim:0, hurtAnim:0, fpAction:null, fpActionTime:0, fpActionDuration:0},
   enemies:[], projectiles:[], hazards:[], effects:[], fpEffects:[], ally:null, boss:null,
+  lockedTarget:null,targetRing:null,targetHold:0,
   keys:{}, joy:{x:0,y:0}, shake:0, gateOpen:0, nextId:1
 };
 
@@ -544,10 +555,84 @@ function createPlayerModel(){
 // A valid production GLB only needs to contain a skinned mesh and clips named
 // Idle, Walk, Attack (Hurt is optional).  The gameplay state remains the
 // authority; the animation mixer never moves the player in world space.
+function applyFilmRedTextures(model){
+  const loader=new THREE.TextureLoader();
+  const cache={};
+  const load=(name,color=false)=>{
+    if(!cache[name]){
+      cache[name]=loader.load(PLAYER_3D_ASSET.textureRoot+name);
+      if(color)cache[name].colorSpace=THREE.SRGBColorSpace;
+      cache[name].anisotropy=Math.min(8,renderer.capabilities.getMaxAnisotropy());
+    }
+    return cache[name];
+  };
+  model.traverse(node=>{
+    if(!node.isMesh)return;
+    const materials=Array.isArray(node.material)?node.material:[node.material];
+    materials.forEach(material=>{
+      if(!material)return;
+      const key=(material.name||"").toLowerCase();
+      if(key.includes("cloak")){
+        material.map=load("luffy022_cloak_d.png",true);
+        material.normalMap=load("luffy022_cloak_n.png");
+        material.metalnessMap=load("luffy022_cloak_m.png");
+      }else if(key.includes("arm")){
+        material.map=load("luffy022_arm_d.png",true);
+      }else{
+        material.map=load("luffy022_body_d.png",true);
+        material.normalMap=load("luffy022_body_n.png");
+        material.metalnessMap=load("luffy022_body_m.png");
+      }
+      material.metalness=.08;material.roughness=.72;material.transparent=false;material.needsUpdate=true;
+    });
+  });
+}
+function setupFilmRedProceduralRig(model){
+  const names={
+    pelvis:"Bip001_Pelvis",spine:"Bip001_Spine",chest:"Bip001_Spine1",neck:"Bip001_Neck",head:"Bip001_Head",
+    armL:"Bip001_L_UpperArm",forearmL:"Bip001_L_Forearm",armR:"Bip001_R_UpperArm",forearmR:"Bip001_R_Forearm",
+    thighL:"Bip001_L_Thigh",calfL:"Bip001_L_Calf",thighR:"Bip001_R_Thigh",calfR:"Bip001_R_Calf"
+  };
+  const bones={};
+  Object.entries(names).forEach(([key,name])=>{
+    const bone=model.getObjectByName(name);
+    if(bone)bones[key]={bone,base:bone.rotation.clone()};
+  });
+  return bones;
+}
+function configurePlayer3D(root,model,animations=[]){
+  let skinned=0,meshes=0;
+  model.traverse(node=>{if(node.isMesh){meshes++;if(node.isSkinnedMesh)skinned++;node.castShadow=false;node.receiveShadow=true;}});
+  if(!skinned){
+    console.warn("[Player3D] model rejected: no skinned mesh");
+    modelTestMessage="Film Red 校验失败（无蒙皮网格）· 正在显示2D备用角色";return;
+  }
+  if(playerModelChoice==="film-red")applyFilmRedTextures(model);
+  model.name=playerModelChoice==="film-red"?"Luffy_Film_Red_Character":"Luffy_GLTF_Character";
+  model.position.y=PLAYER_3D_ASSET.y;model.rotation.y=PLAYER_3D_ASSET.orientation;model.scale.setScalar(PLAYER_3D_ASSET.scale);
+  const mixer=new THREE.AnimationMixer(model),actions={};
+  animations.forEach(clip=>actions[clip.name.toLowerCase()]=mixer.clipAction(clip));
+  root.add(model);
+  root.userData.model3d={enabled:true,model,mixer,actions,current:null,
+    procedural:!animations.length,proceduralBones:!animations.length?setupFilmRedProceduralRig(model):null};
+  [root.userData.sprite,root.userData.depthSprite,root.userData.rimSprite].forEach(item=>{if(item)item.visible=false;});
+  if(root.userData.shadow)root.userData.shadow.visible=true;
+  playPlayer3DAction(root,"idle",true);
+  modelTestMessage=(PLAYER_3D_ASSET.label||"3D主角")+" · 已加载";
+  toast("Film Red 路飞已加载",900);
+  console.info("[Player3D] loaded",{choice:playerModelChoice,meshes,skinned,animations:animations.map(a=>a.name)});
+}
 function loadPlayerGLB(root){
   if(!PLAYER_3D_ASSET)return;
-  const loader=new GLTFLoader();
-  loader.load(PLAYER_3D_ASSET.url,gltf=>{
+  const onError=error=>{
+    console.warn("[Player3D] model fallback:",error);
+    modelTestMessage="Film Red 加载失败 · 正在显示2D备用角色";
+  };
+  if(PLAYER_3D_ASSET.type==="fbx"){
+    new FBXLoader().load(PLAYER_3D_ASSET.url,model=>configurePlayer3D(root,model,model.animations||[]),undefined,onError);
+    return;
+  }
+  new GLTFLoader().load(PLAYER_3D_ASSET.url,gltf=>{
     const model=gltf.scene;
     // Reject unskinned or incomplete test files before hiding the fallback.
     if(playerModelChoice==="rigged-luffy"&&(
@@ -555,43 +640,11 @@ function loadPlayerGLB(root){
       !["idle","walk","attack"].every(name=>gltf.animations.some(clip=>clip.name.toLowerCase()===name))
     )){
       console.warn("[GLB] rigged-luffy needs a skinned mesh and Idle/Walk/Attack clips");
-      modelTestMessage="模型校验失败 · 已回退原角色";
+      modelTestMessage="测试GLB校验失败 · 正在显示2D备用角色";
       return;
     }
-    model.name="Luffy_GLTF_Character";
-    model.position.y=PLAYER_3D_ASSET.y;
-    model.rotation.y=PLAYER_3D_ASSET.orientation;
-    model.scale.setScalar(PLAYER_3D_ASSET.scale);
-    model.traverse(node=>{
-      if(!node.isMesh)return;
-      // A 53k-triangle mobile character should not be drawn again in the
-      // shadow pass; keep its cheap ground contact shadow instead.
-      node.castShadow=playerModelChoice!=="rigged-luffy";
-      node.receiveShadow=true;
-      // Keep the original PBR textures and let the game's existing
-      // hemisphere/sun/rim lights provide shape, rather than flattening it
-      // into a sprite-like basic material.
-      for(const material of Array.isArray(node.material)?node.material:[node.material]){
-        if(!material)continue;
-        material.transparent=false;
-        material.needsUpdate=true;
-      }
-    });
-    const mixer=new THREE.AnimationMixer(model);
-    const actions={};
-    gltf.animations.forEach(clip=>actions[clip.name.toLowerCase()]=mixer.clipAction(clip));
-    root.add(model);
-    root.userData.model3d={enabled:true,model,mixer,actions,current:null};
-    // Only hide the 2D fallback after GLB parsing succeeds.
-    [root.userData.sprite,root.userData.depthSprite,root.userData.rimSprite].forEach(item=>{if(item)item.visible=false;});
-    if(root.userData.shadow)root.userData.shadow.visible=playerModelChoice==="rigged-luffy";
-    playPlayer3DAction(root,"idle",true);
-    if(modelTestStatus)modelTestMessage="3D模型已加载";
-    toast("3D角色测试资源已加载",900);
-  },undefined,error=>{
-    console.warn("[GLB] player model fallback:",error);
-    if(modelTestStatus)modelTestMessage="模型加载失败 · 已回退原角色";
-  });
+    configurePlayer3D(root,model,gltf.animations);
+  },undefined,onError);
 }
 function playPlayer3DAction(root,name,force=false){
   const data=root?.userData?.model3d;if(!data?.enabled)return;
@@ -606,6 +659,20 @@ function updatePlayer3D(root,dt,moving,p){
   const clip=p.hurtAnim>0?(data.actions.hurt?"hurt":"idle"):(p.attackAnim>0||p.castTime>0?"attack":(moving?"walk":"idle"));
   playPlayer3DAction(root,clip);
   data.mixer.update(dt);
+  if(data.procedural&&data.proceduralBones){
+    const rig=data.proceduralBones,walk=Math.sin(state.time*9),attack=p.attackAnim>0?Math.sin((1-p.attackAnim)*Math.PI):0;
+    Object.values(rig).forEach(entry=>entry.bone.rotation.copy(entry.base));
+    if(rig.thighL)rig.thighL.bone.rotation.x+=moving?walk*.48:0;
+    if(rig.thighR)rig.thighR.bone.rotation.x-=moving?walk*.48:0;
+    if(rig.calfL)rig.calfL.bone.rotation.x+=moving?Math.max(0,-walk)*.38:0;
+    if(rig.calfR)rig.calfR.bone.rotation.x+=moving?Math.max(0,walk)*.38:0;
+    if(rig.armL)rig.armL.bone.rotation.x-=moving?walk*.34:0;
+    if(rig.armR)rig.armR.bone.rotation.x+=(moving?walk*.34:0)-attack*1.35;
+    if(rig.forearmR)rig.forearmR.bone.rotation.x-=attack*.72;
+    if(rig.spine)rig.spine.bone.rotation.z+=moving?Math.sin(state.time*4.5)*.035:Math.sin(state.time*2.2)*.018;
+    if(rig.chest)rig.chest.bone.rotation.x+=attack*.26;
+    if(rig.head)rig.head.bone.rotation.y+=Math.sin(state.time*.8)*.025;
+  }
   // A small body lean and walk rise adds readability but stays below the
   // threshold where the player slides or breaks collision logic.
   const bob=moving?Math.abs(Math.sin(state.time*8.5))*.055:0;
@@ -787,31 +854,168 @@ function addHealthBar(model,width=2.2,y=5.3){
   fill.castShadow=false; root.userData.fill=fill; root.userData.width=width-.08; return root;
 }
 
+// Real model assets selected from the uploaded model library.  Each actor keeps
+// its lightweight procedural body visible until the FBX is completely loaded
+// and validated, so a slow or failed request can never leave a floating bar.
+const TROOP_3D_ASSETS={
+  garpCaptain:{url:"./assets/models/troops/garp/12002.fbx?v=48",height:6.15,rotation:Math.PI,label:"加普精英队长",diffuse:"./assets/models/troops/garp/12002_D.png"},
+  fakeNami:{url:"./assets/models/troops/fake-nami/falsenami001_body.fbx?v=48",height:5.25,rotation:Math.PI,label:"伪草帽·娜美",diffuse:"./assets/models/troops/fake-nami/falsenami001_body_d.png"},
+  fakeLuffy:{url:"./assets/models/troops/fake-luffy/falseluffy001_body.fbx?v=48",height:5.45,rotation:Math.PI,label:"伪草帽·路飞",diffuse:"./assets/models/troops/fake-luffy/falseluffy001_body_d.png"},
+  fakeSniper:{url:"./assets/models/troops/fake-sniper/falseusopp001_body.fbx?v=48",height:5.35,rotation:Math.PI,label:"伪草帽·狙击手",diffuse:"./assets/models/troops/fake-sniper/falseusopp001_body_d.png"},
+  toyA:{url:"./assets/models/troops/toy-a/02_wanou_01.fbx?v=48",height:4.1,rotation:Math.PI,label:"玩偶兵·突击型",diffuse:"./assets/models/troops/toy-a/sugar001_threedoll_d.png"},
+  toyB:{url:"./assets/models/troops/toy-b/02_wanou_02.fbx?v=48",height:4.35,rotation:Math.PI,label:"玩偶兵·重装型",diffuse:"./assets/models/troops/toy-b/sugar001_threedoll_d.png"},
+  toyC:{url:"./assets/models/troops/toy-c/02_wanou_03.fbx?v=48",height:4.15,rotation:Math.PI,label:"玩偶兵·远程型",diffuse:"./assets/models/troops/toy-c/sugar001_threedoll_d.png"},
+  boss:{url:"./assets/models/troops/akainu/12110_U.fbx?v=48",height:7.25,rotation:Math.PI,label:"赤犬",diffuse:"./assets/models/troops/akainu/12010_Body_BC.png"}
+};
+const troopModelPromises=new Map(),troopTextureCache=new Map(),reportedModelFailures=new Set();
+function troopTexture(url){
+  if(!url)return null;
+  if(!troopTextureCache.has(url)){
+    const texture=new THREE.TextureLoader().load(url);
+    texture.colorSpace=THREE.SRGBColorSpace;
+    texture.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
+    troopTextureCache.set(url,texture);
+  }
+  return troopTextureCache.get(url);
+}
+function loadTroopPrototype(type){
+  const asset=TROOP_3D_ASSETS[type];if(!asset)return Promise.resolve(null);
+  if(!troopModelPromises.has(type)){
+    troopModelPromises.set(type,new Promise((resolve,reject)=>{
+      new FBXLoader().load(asset.url,model=>{
+        let meshes=0,skinned=0;const defaultMap=troopTexture(asset.diffuse);
+        model.traverse(node=>{
+          if(!node.isMesh)return;meshes++;if(node.isSkinnedMesh)skinned++;
+          node.castShadow=false;node.receiveShadow=true;node.frustumCulled=false;
+          const materials=Array.isArray(node.material)?node.material:[node.material];
+          materials.forEach(material=>{
+            if(!material)return;
+            if(!material.map&&defaultMap)material.map=defaultMap;
+            material.transparent=false;material.opacity=1;material.side=THREE.FrontSide;material.needsUpdate=true;
+          });
+        });
+        if(!meshes){reject(new Error(`${asset.label} FBX 中没有可渲染网格`));return;}
+        console.info("[Troop3D] prototype loaded",{type,label:asset.label,meshes,skinned,animations:(model.animations||[]).map(a=>a.name)});
+        resolve(model);
+      },undefined,reject);
+    }));
+  }
+  return troopModelPromises.get(type);
+}
+function reportTroopModelFailure(type,error){
+  const asset=TROOP_3D_ASSETS[type];
+  console.error("[Troop3D] load failed",{type,url:asset?.url,error});
+  if(reportedModelFailures.has(type))return;
+  reportedModelFailures.add(type);
+  toast(`${asset?.label||type}模型加载失败，已保留3D备用兵模`,2200);
+}
+async function attachTroop3D(e){
+  const asset=TROOP_3D_ASSETS[e.type];if(!asset)return;
+  e.model.userData.assetState="loading";
+  try{
+    const prototype=await loadTroopPrototype(e.type);
+    if(!prototype||e.dead||!e.model.parent)return;
+    const actor=cloneSkeleton(prototype);actor.name=`${e.type}_LibraryModel`;actor.rotation.y=asset.rotation||0;
+    actor.updateMatrixWorld(true);
+    let box=new THREE.Box3().setFromObject(actor),size=box.getSize(new THREE.Vector3());
+    if(!Number.isFinite(size.y)||size.y<=.001)throw new Error(`${asset.label}尺寸无效`);
+    actor.scale.multiplyScalar(asset.height/size.y);actor.updateMatrixWorld(true);
+    box=new THREE.Box3().setFromObject(actor);actor.position.y-=box.min.y;
+    actor.userData.baseY=actor.position.y;
+    e.model.add(actor);e.libraryModel=actor;e.model.userData.assetState="ready";
+    (e.model.userData.fallbackMeshes||[]).forEach(mesh=>mesh.visible=false);
+    console.info("[Troop3D] actor attached",{type:e.type,height:asset.height});
+  }catch(error){
+    e.model.userData.assetState="failed";reportTroopModelFailure(e.type,error);
+  }
+}
+
 const STATS={
   sword:{hp:85,speed:3.9,damage:14,range:2.1,color:C.red},
   gun:{hp:62,speed:3.0,damage:11,range:16,color:C.gold},
   shield:{hp:150,speed:2.55,damage:10,range:2.2,color:C.blue},
-  captain:{hp:210,speed:3.25,damage:21,range:2.6,color:C.purple}
+  captain:{hp:210,speed:3.25,damage:21,range:2.6,color:C.purple},
+  garpCaptain:{hp:235,speed:3.35,damage:24,range:2.7,color:C.gold},
+  fakeNami:{hp:88,speed:4.15,damage:16,range:2.4,color:0xf68a32},
+  fakeLuffy:{hp:125,speed:3.65,damage:19,range:2.3,color:C.red},
+  fakeSniper:{hp:72,speed:3.05,damage:14,range:17,color:C.gold},
+  toyA:{hp:58,speed:4.45,damage:10,range:1.8,color:0x61d6b0},
+  toyB:{hp:105,speed:2.75,damage:15,range:2.1,color:0x7f72d8},
+  toyC:{hp:64,speed:3.15,damage:12,range:14,color:0xe786c7}
 };
+const TROOP_BASE={garpCaptain:"captain",fakeNami:"sword",fakeLuffy:"shield",fakeSniper:"gun",toyA:"sword",toyB:"shield",toyC:"gun"};
+const ENEMY_NAMES={
+  sword:"海军刀兵",gun:"海军枪兵",shield:"海军盾兵",captain:"海军精英队长",boss:"赤犬",
+  garpCaptain:"加普精英队长",fakeNami:"伪草帽·娜美",fakeLuffy:"伪草帽·路飞",fakeSniper:"伪草帽·狙击手",
+  toyA:"玩偶兵·突击型",toyB:"玩偶兵·重装型",toyC:"玩偶兵·远程型"
+};
+function ensureTargetRing(){
+  if(state.targetRing)return state.targetRing;
+  const material=new THREE.MeshBasicMaterial({color:C.gold,transparent:true,opacity:.9,side:THREE.DoubleSide,depthWrite:false});
+  const ring=new THREE.Mesh(new THREE.RingGeometry(1.02,1.28,36),material);
+  ring.rotation.x=-Math.PI/2;ring.position.y=.08;ring.visible=false;ring.renderOrder=5;scene.add(ring);state.targetRing=ring;
+  return ring;
+}
+function setLockedTarget(target){
+  if(state.lockedTarget===target)return;
+  if(state.lockedTarget?.bar?.userData?.fill)state.lockedTarget.bar.userData.fill.material.color.setHex(0x49dd82);
+  state.lockedTarget=target||null;
+  if(target?.bar?.userData?.fill)target.bar.userData.fill.material.color.setHex(C.gold);
+}
+function updateTargetLock(dt){
+  const direction=aimDirection();direction.y=0;direction.normalize();
+  let candidate=null,best=-Infinity;
+  for(const e of state.enemies){
+    if(e.dead)continue;
+    const to=e.pos.clone().sub(state.player.pos);to.y=0;const distance=to.length();
+    if(distance<.01||distance>38)continue;
+    const dot=to.multiplyScalar(1/distance).dot(direction);
+    if(dot<.88)continue;
+    const score=dot*5-distance*.018+(e.type==="boss"?.08:0);
+    if(score>best){best=score;candidate=e;}
+  }
+  if(candidate){setLockedTarget(candidate);state.targetHold=.28;}
+  else if(state.targetHold>0)state.targetHold-=dt;
+  else setLockedTarget(null);
+  const ring=ensureTargetRing(),target=state.lockedTarget;
+  ring.visible=!!target;
+  if(target){
+    ring.position.set(target.pos.x,.08,target.pos.z);const pulseScale=1+Math.sin(state.time*7)*.08;
+    ring.scale.setScalar((target.type==="boss"?1.55:1)*pulseScale);ring.rotation.z+=dt*.8;
+  }
+}
 function spawnEnemy(type="sword",x=0,z=0){
-  const s=STATS[type], model=createMarineModel(type,false);
+  const s=STATS[type]||STATS.sword,combatType=TROOP_BASE[type]||type,model=createMarineModel(combatType,false);
+  if(type!==combatType){
+    const accent=s.color;
+    add(model,new THREE.TorusGeometry(type.startsWith("toy")?.58:.86,.11,7,18),toon(accent,accent),0,type.startsWith("toy")?3.15:4.58,.35,Math.PI/2);
+    if(type.startsWith("toy"))model.scale.multiplyScalar(.82);
+    if(type==="fakeNami")add(model,new THREE.SphereGeometry(.74,10,8),toon(0xee7138),0,4.42,-.28);
+    if(type==="fakeLuffy")add(model,new THREE.CylinderGeometry(.9,.9,.12,16),toon(0xe4b343),0,4.83,0);
+    if(type==="garpCaptain")add(model,new THREE.BoxGeometry(2.7,.24,1.15),toon(0xf4e6c9),0,3.52,-.4);
+  }
+  model.userData.fallbackMeshes=[];model.traverse(node=>{if(node.isMesh)model.userData.fallbackMeshes.push(node);});
   rigActor(model);
   if(type==="sword"||type==="gun"||type==="captain")addMarineSprite(model,type);
   model.position.set(x,0,z);model.userData.rig.last.copy(model.position); scene.add(model);
-  const e={id:state.nextId++,type,model,pos:model.position,hp:s.hp,maxHp:s.hp,speed:s.speed,
+  const e={id:state.nextId++,type,combatType,model,pos:model.position,hp:s.hp,maxHp:s.hp,speed:s.speed,
     damage:s.damage,range:s.range,attackCd:.5+Math.random(),stun:0,dead:false,
     animSprite:model.userData.animSprite||null,animName:"idle",animTime:0,
     attackActive:false,attackAnimTime:0,attackHitDone:false,attackKind:null,
     attackTarget:null,attackTargetRef:null,attackTargetAlly:false,hitFlash:0,
-    bar:addHealthBar(model,2.15,type==="captain"?6.3:5.3)};
-  state.enemies.push(e); return e;
+    bar:addHealthBar(model,2.15,type==="captain"||type==="garpCaptain"?6.3:(type.startsWith("toy")?4.45:5.3))};
+  state.enemies.push(e);attachTroop3D(e);return e;
 }
 function spawnBoss(){
-  const model=createMarineModel("captain",true);rigActor(model); model.position.set(0,0,-48); scene.add(model);
+  const model=createMarineModel("captain",true);
+  model.userData.fallbackMeshes=[];model.traverse(node=>{if(node.isMesh)model.userData.fallbackMeshes.push(node);});
+  rigActor(model); model.position.set(0,0,-48); scene.add(model);
   const e={id:state.nextId++,type:"boss",model,pos:model.position,hp:720,maxHp:720,speed:2.7,damage:30,
     range:3.3,attackCd:2,stun:0,dead:false,phase2:false,ultimate:false,bar:addHealthBar(model,3.2,7.65)};
+  e.bar.visible=false;
   state.enemies.push(e); state.boss=e; ui.bossWrap.classList.remove("hidden");
-  toast("海军本部大将登场！",2200); audio.tone(72,.55,"sawtooth",.07);
+  attachTroop3D(e);
+  toast("海军本部大将·赤犬登场！",2200); audio.tone(72,.55,"sawtooth",.07);
 }
 function spawnAlly(){
   const model=createAllyModel();rigActor(model); model.position.set(0,0,-24); scene.add(model);
@@ -825,7 +1029,7 @@ function clearActors(){
   state.hazards.forEach(h=>scene.remove(h.mesh)); state.hazards=[];
   state.effects.forEach(f=>scene.remove(f.mesh)); state.effects=[];
   if(state.ally){scene.remove(state.ally.model);state.ally=null;}
-  state.boss=null;
+  state.boss=null;setLockedTarget(null);if(state.targetRing)state.targetRing.visible=false;
 }
 
 const arms=new THREE.Group();
@@ -1223,6 +1427,12 @@ function animateActors(dt){
     a.model.userData.swing=Math.max(0,(a.model.userData.swing||0)-dt*2.8);
     a.model.userData.hurt=Math.max(0,(a.model.userData.hurt||0)-dt*3.5);
     poseActor(a.model,dt,moving,a.model.userData.swing,a.model.userData.hurt);
+    if(a.libraryModel){
+      const swing=a.model.userData.swing||0,hurt=a.model.userData.hurt||0;
+      a.libraryModel.position.y=a.libraryModel.userData.baseY+(moving?Math.abs(Math.sin(state.time*7.5+a.id))*.055:0);
+      a.libraryModel.rotation.z=(swing?Math.sin(Math.PI*swing)*-.09:0)+(hurt?Math.sin(Math.PI*hurt)*.06:0);
+      a.libraryModel.rotation.x=hurt?Math.sin(Math.PI*hurt)*-.08:0;
+    }
   }
 }
 function scheduleCombat(delay,run){state.combatActions.push({delay,run});}
@@ -1296,15 +1506,16 @@ function ultimate(){
 function resetGame(){
   clearActors();clearFirstPersonEffects();state.combatActions=[];
   Object.assign(state,{active:false,paused:false,phase:"assault",time:0,capture:0,defense:30,
-    waveClock:0,kills:0,combo:0,maxCombo:0,comboTimer:0,score:0,yaw:0,pitch:-.04,shake:0,gateOpen:0});
+    waveClock:0,kills:0,combo:0,maxCombo:0,comboTimer:0,score:0,yaw:0,pitch:-.04,shake:0,gateOpen:0,targetHold:0});
   Object.assign(state.player,{charge:0,castTime:0,castKind:null,rocket:null,hp:300,maxHp:300,stamina:100,haki:30,speed:9.2,dodge:0,invuln:0,buff:0,attackAnim:0,hurtAnim:0,fpAction:null,fpActionTime:0,fpActionDuration:0});
   state.player.pos.set(0,1.7,40);
   Object.keys(state.player.cooldowns).forEach(k=>state.player.cooldowns[k]=0);
   state.gate.children[0].position.x=-3.2; state.gate.children[1].position.x=3.2;
   state.exitMarker.visible=false; ui.bossWrap.classList.add("hidden"); ui.capture.classList.remove("hidden");
   const initial=[
-    ["sword",-5,23],["sword",6,18],["gun",-15,10],["shield",12,5],["sword",-8,-4],
-    ["gun",16,-10],["captain",0,-14],["shield",-15,-18],["sword",17,-25]
+    ["sword",-8,24],["sword",7,21],["gun",-17,13],["shield",16,8],["captain",0,3],
+    ["garpCaptain",-11,-5],["fakeNami",11,-9],["fakeLuffy",-19,-16],["fakeSniper",19,-21],
+    ["toyA",-8,-28],["toyB",1,-32],["toyC",10,-28]
   ];
   initial.forEach(v=>spawnEnemy(v[0],v[1],v[2]));
   updateUI();
@@ -1474,7 +1685,7 @@ function hitCone(damage,range,minDot){
 }
 function damageEnemy(e,amount,heavy){
   if(e.dead)return;
-  if(e.type==="shield"&&!heavy)amount*=.68;
+  if(e.combatType==="shield"&&!heavy)amount*=.68;
   e.hp-=amount;e.model.userData.hurt=1;e.hitFlash=.18;
   state.player.charge=clamp(state.player.charge+amount*.12,0,100);state.player.haki=clamp(state.player.haki+amount*.08,0,100);
   state.score+=Math.round(amount*(1+state.combo*.025));damageNumber(e.pos,Math.round(amount),heavy);
@@ -1483,6 +1694,7 @@ function damageEnemy(e,amount,heavy){
 function killEnemy(e){
   if(e.dead)return;e.dead=true;state.kills++;state.score+=e.type==="boss"?1200:100;
   burst(e.pos,e.type==="boss"?C.gold:C.orange,e.type==="boss"?26:9);
+  if(state.lockedTarget===e)setLockedTarget(null);
   disposeMarineSprite(e.model);
   scene.remove(e.model);
   if(e.type==="boss"){
@@ -1542,10 +1754,10 @@ function updateEnemies(dt){
     if(e.attackActive){tickEnemyAttack(e,dt);return;}
     const target=(state.phase==="defense"&&state.ally&&dist2D(e.pos,state.ally.pos)<dist2D(e.pos,p.pos)+4)?state.ally.pos:p.pos;
     const to=target.clone().sub(e.pos);to.y=0;const d=to.length();if(d>.01)e.model.rotation.y=Math.atan2(to.x,to.z);
-    if(e.type==="gun"&&d<18&&d>5){
+    if(e.combatType==="gun"&&d<18&&d>5){
       if(e.attackCd<=0){e.attackCd=2.0+Math.random()*.5;beginEnemyAttack(e,target,"gun");}
       else if(e.animSprite)setMarineAnimation(e,"idle");
-    }else if(e.type==="gun"&&d<=5){
+    }else if(e.combatType==="gun"&&d<=5){
       if(d>.01)e.pos.addScaledVector(to.normalize(),-e.speed*dt);
       if(e.animSprite)setMarineAnimation(e,"walk");
     }else if(d>e.range){
@@ -1553,7 +1765,7 @@ function updateEnemies(dt){
       e.pos.addScaledVector(to.normalize(),e.speed*dt*(crowd?.55:1));
       if(e.animSprite)setMarineAnimation(e,"walk");
     }else if(e.attackCd<=0){
-      e.attackCd=e.type==="captain"?1.25:1.55;
+      e.attackCd=e.combatType==="captain"?1.25:1.55;
       if(e.animSprite)beginEnemyAttack(e,target,"melee");
       else{
         e.model.userData.swing=1;
@@ -1718,7 +1930,18 @@ function updateUI(){
   }else if(state.phase==="boss")ui.objective.textContent="首领战 · 躲开红色预警并发动反击";
   else if(state.phase==="defense")ui.objective.textContent="保护盟友 · 坚守 "+Math.ceil(state.defense)+" 秒";
   else ui.objective.textContent="正门开启 · 穿过绿色撤离点";
-  if(state.boss){ui.bossFill.style.width=(state.boss.hp/state.boss.maxHp*100)+"%";ui.bossText.textContent=Math.max(0,Math.ceil(state.boss.hp))+" / "+state.boss.maxHp;}
+  if(state.boss){
+    const percent=Math.max(0,Math.ceil(state.boss.hp/state.boss.maxHp*100));
+    ui.bossFill.style.width=percent+"%";
+    ui.bossText.textContent=Math.max(0,Math.ceil(state.boss.hp))+" / "+state.boss.maxHp+` · ${percent}% · ${state.boss.phase2?"狂暴阶段":"第一阶段"}`;
+  }
+  const target=state.lockedTarget;
+  ui.targetWrap.classList.toggle("hidden",!target);
+  ui.crosshair?.classList.toggle("locked",!!target);
+  if(target){
+    ui.targetName.textContent=(ENEMY_NAMES[target.type]||"敌人")+" · "+Math.max(0,Math.ceil(target.hp))+"/"+target.maxHp;
+    ui.targetDistance.textContent="距离 "+dist2D(target.pos,state.player.pos).toFixed(1)+"米";
+  }
   document.querySelectorAll("[data-cd]").forEach(el=>{
     const key=el.dataset.cd,v=p.cooldowns[key];const span=el.querySelector(".cd");
     if(span)span.textContent=v>0?Math.ceil(v):(key==="ultimate"&&p.charge<100?Math.floor(p.charge)+"%":"");
@@ -1860,7 +2083,7 @@ bindControls();
 function animate(){
   const dt=Math.min(clock.getDelta(),.035);
   if(state.active&&!state.paused){
-    state.time+=dt;updateEnvironment(dt);updatePlayer(dt);updateCombat(dt);updateEnemies(dt);updateAlly(dt);animateActors(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updateFirstPersonEffects(dt);updatePhase(dt);updateUI();
+    state.time+=dt;updateEnvironment(dt);updatePlayer(dt);updateCombat(dt);updateEnemies(dt);updateTargetLock(dt);updateAlly(dt);animateActors(dt);updateProjectiles(dt);updateHazards(dt);updateEffects(dt);updateFirstPersonEffects(dt);updatePhase(dt);updateUI();
   }else if(!state.active){
     camera.position.lerp(new THREE.Vector3(15,15,35),.04);camera.lookAt(0,2,-12);
     state.captureMesh.rotation.y+=dt*.3;
