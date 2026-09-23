@@ -55,6 +55,10 @@ h1 span{color:var(--orange)}
 #redFlash{position:absolute;inset:0;box-shadow:inset 0 0 80px 28px rgba(238,39,55,0);pointer-events:none}
 #redFlash.hit{animation:hurt .38s ease-out}
 @keyframes hurt{0%{box-shadow:inset 0 0 100px 40px rgba(238,39,55,.78)}100%{box-shadow:inset 0 0 80px 28px rgba(238,39,55,0)}}
+#impactFlash{position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(circle,rgba(255,244,190,.34),rgba(255,181,70,.08) 28%,transparent 62%);mix-blend-mode:screen}
+#impactFlash.strong{background:radial-gradient(circle,rgba(255,250,214,.58),rgba(255,136,54,.16) 34%,transparent 68%)}
+#impactFlash.hit{animation:impact .16s ease-out}
+@keyframes impact{0%{opacity:1;transform:scale(1.02)}100%{opacity:0;transform:scale(1.08)}}
 #damageLayer{position:absolute;inset:0;overflow:hidden}
 .damage{position:absolute;color:#fff;font-weight:1000;font-size:21px;text-shadow:0 3px 0 #982e32;animation:damage .65s ease-out forwards}
 .damage.heavy{color:var(--gold);font-size:29px}
