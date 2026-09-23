@@ -28,9 +28,9 @@ const context=vm.createContext({THREE,FBXLoader,cloneSkeleton,arms,console,state
   add:(parent,geo,mat,x=0,y=0,z=0,rx=0,ry=0,rz=0)=>{const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);m.rotation.set(rx,ry,rz);parent.add(m);return m;},
   world:new THREE.Group(),hurtPlayer:()=>hits++,spawnEnemy:()=>{},toast:()=>{}});
 vm.runInContext(source.slice(source.indexOf('const TROOP_BONE_ALIASES='),source.indexOf('function setupTroopRig(')),context);
-for(const name of ['parseCharacterFBX','characterBoneAxes','bindBonePose','turnBone',
+for(const name of ['parseCharacterFBX','characterBoneAxes','bindBonePose','turnBone','normalizeCharacterSkeleton',
   'setupFilmRedProceduralRig','playPlayer3DAction','updatePlayer3D','setupTroopRig','updateTroopRig',
-  'rotateTroopToward','disposeWorldEffect','pushWorldEffect','addWorldEffect','spawnSkillCharge',
+  'rotateTroopToward','disposeWorldEffect','pushWorldEffect','addWorldEffect','spawnSkillCharge','spawnAttackFlare',
   'dtSafe','spawnEnergyColumn','spawnImpactBurst','pulse','spawnCircleHazard','spawnLineHazard',
   'updateHazards','updateEffects','updateBoss','makeRainField','makeCloudBank','makeGullFlock',
   'makeVegetation','makeCannon','updateEnvironment','installFirstPersonRig','updateFirstPersonArms'])vm.runInContext(fn(name),context);
@@ -40,6 +40,12 @@ for(const file of ['film-red-luffy/luffy022_body_model.fbx','troops/toy-a/02_wan
   const model=context.parseCharacterFBX(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'./');
   model.rotation.order='YXZ';model.rotation.x=-Math.PI/2;model.rotation.y=0;
   model.updateMatrixWorld(true);
+  if(file.startsWith('film-red')||file.includes('akainu')){
+    const up=model.getObjectByName('Bip001_Head').getWorldPosition(new THREE.Vector3())
+      .sub(model.getObjectByName('Bip001_Pelvis').getWorldPosition(new THREE.Vector3()));
+    assert.ok(up.y>Math.abs(up.z)*3,'aligned skeleton must stand upright with the visible mesh');
+  }
+  const bindBounds=new THREE.Box3().setFromObject(model),bindSize=bindBounds.getSize(new THREE.Vector3());
   model.traverse(node=>{if(node.isMesh){assert.equal(node.geometry.getAttribute('color'),undefined);}});
   if(file.startsWith('film-red')){
     const root=new THREE.Group();root.add(model);model.userData.groundY=0;
@@ -59,6 +65,11 @@ for(const file of ['film-red-luffy/luffy022_body_model.fbx','troops/toy-a/02_wan
     for(let i=0;i<360;i++){state.time+=1/60;context.updateTroopRig(model,1/60,true,(i%60)/60,'bossCircle',0);}
   }
   model.traverse(node=>{assert.ok(node.quaternion.toArray().every(Number.isFinite));assert.ok(Math.abs(node.quaternion.length()-1)<1e-5);});
+  if(file.startsWith('film-red')||file.includes('akainu')){
+    model.updateMatrixWorld(true);
+    const posedSize=new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
+    assert.ok(posedSize.length()<bindSize.length()*1.65,`skinned actor expands beyond bound body: ${file}`);
+  }
   console.log('PASS finite bind-relative poses:',file);
 }
 const root=new THREE.Group();
@@ -92,10 +103,9 @@ for(const side of [-1,1]){
   const cannon=context.makeCannon(side*36,0,side),forward=new THREE.Vector3(0,0,1).applyQuaternion(cannon.quaternion);
   assert.ok(forward.x*side<-.99);assert.ok(cannon.children.some(node=>node.isGroup));
 }
-const waves=[new THREE.Mesh(new THREE.PlaneGeometry(8,1),new THREE.MeshBasicMaterial({opacity:.2}))];waves[0].userData.wavePhase=0;waves[0].userData.waveBaseX=0;
 const lights={hemi:new THREE.HemisphereLight(0xffffff,0x333333,2),sun:new THREE.DirectionalLight(0xffffff,3),rim:new THREE.DirectionalLight(0xffffff,1),fortressLamp:{intensity:1}};
-const env={sea:new THREE.Mesh(new THREE.PlaneGeometry(180,210,8,8),new THREE.MeshStandardMaterial()),waterWaves:waves,foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
-  surfMesh:new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float32Array(112*3),3)),new THREE.PointsMaterial()),
+const env={sea:new THREE.Mesh(new THREE.PlaneGeometry(180,210,8,8),new THREE.MeshStandardMaterial()),foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
+  sprayDummy:new THREE.Object3D(),surfMesh:new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.095,1),new THREE.MeshStandardMaterial(),112),
   weatherDrops:rain,cloudMesh:clouds,gulls,...lights,weatherClock:0};
 context.scene.background=new THREE.Color(0x9fd5e4);context.scene.fog=new THREE.Fog(0x9fd5e4,48,125);context.world.userData.environment=env;
 let sawRain=false,sawClear=false;
@@ -103,6 +113,6 @@ for(let i=0;i<94*30;i++){
   state.time+=1/30;context.updateEnvironment(1/30);
   sawRain ||= rain.mesh.visible;sawClear ||= !rain.mesh.visible;
 }
-assert.ok(sawRain&&sawClear);assert.ok(Array.from(env.surfMesh.geometry.attributes.position.array).every(Number.isFinite));
+assert.ok(sawRain&&sawClear);assert.ok(Array.from(env.surfMesh.instanceMatrix.array).every(Number.isFinite));
 assert.ok(env.sea.geometry.attributes.position.getZ(0)!==0,'ocean mesh should displace');
 console.log('PASS weather cycle, rain, seagulls, and instanced vegetation');
