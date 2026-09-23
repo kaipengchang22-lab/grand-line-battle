@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 // CPU regression only: does not assert visual quality, GPU memory, or Android FPS.
 globalThis.document={createElementNS:()=>({addEventListener(){},removeEventListener(){},set src(value){}})};
@@ -10,13 +11,15 @@ const source=readFileSync(new URL('../game.js',import.meta.url),'utf8');
 function fn(name){
   const start=source.indexOf(`function ${name}(`);
   assert.ok(start>=0,name);
-  const end=source.indexOf('\nfunction ',start+1);
+  let end=source.indexOf('\nfunction ',start+1);
+  if(name==='updateFirstPersonArms')end=source.indexOf('\nbuildArms();',start+1);
   return source.slice(start,end<0?source.length:end);
 }
-const state={time:0,effects:[],hazards:[],enemies:[],player:{pos:new THREE.Vector3(0,1.7,10)},yaw:0};
+const state={time:0,effects:[],hazards:[],enemies:[],player:{pos:new THREE.Vector3(0,1.7,10)},yaw:0,mode:'first'};
 const scene=new THREE.Scene();
+const arms=new THREE.Group();arms.userData.fallback=new THREE.Group();arms.add(arms.userData.fallback);
 let hits=0;
-const context=vm.createContext({THREE,FBXLoader,console,state,scene,WORLD_EFFECT_LIMIT:90,
+const context=vm.createContext({THREE,FBXLoader,cloneSkeleton,arms,console,state,scene,WORLD_EFFECT_LIMIT:90,
   PLAYER_3D_ASSET:{orientation:0},SKY_CLEAR:new THREE.Color(0x9fd5e4),SKY_STORM:new THREE.Color(0x526779),
   C:{red:0xff3333,orange:0xff9933},
   clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),dist2D:(a,b)=>Math.hypot(a.x-b.x,a.z-b.z),
@@ -30,7 +33,7 @@ for(const name of ['parseCharacterFBX','characterBoneAxes','bindBonePose','turnB
   'rotateTroopToward','disposeWorldEffect','pushWorldEffect','addWorldEffect','spawnSkillCharge',
   'dtSafe','spawnEnergyColumn','spawnImpactBurst','pulse','spawnCircleHazard','spawnLineHazard',
   'updateHazards','updateEffects','updateBoss','makeRainField','makeCloudBank','makeGullFlock',
-  'makeVegetation','makeCannon','updateEnvironment'])vm.runInContext(fn(name),context);
+  'makeVegetation','makeCannon','updateEnvironment','installFirstPersonRig','updateFirstPersonArms'])vm.runInContext(fn(name),context);
 
 for(const file of ['film-red-luffy/luffy022_body_model.fbx','troops/toy-a/02_wanou_01.fbx','troops/toy-b/02_wanou_02.fbx','troops/toy-c/02_wanou_03.fbx','troops/garp/12002.fbx','troops/fake-nami/falsenami001_body.fbx','troops/fake-luffy/falseluffy001_body.fbx','troops/fake-sniper/falseusopp001_body.fbx','troops/akainu/12110_U.fbx']){
   const bytes=readFileSync(new URL('../assets/models/'+file,import.meta.url));
@@ -41,9 +44,16 @@ for(const file of ['film-red-luffy/luffy022_body_model.fbx','troops/toy-a/02_wan
   if(file.startsWith('film-red')){
     const root=new THREE.Group();root.add(model);model.userData.groundY=0;
     root.userData.model3d={enabled:true,model,actions:{},mixer:new THREE.AnimationMixer(model),procedural:true,proceduralBones:context.setupFilmRedProceduralRig(model)};
+    context.installFirstPersonRig(model);
+    assert.ok(arms.userData.mirrorPairs?.length>100,'first-person rig must mirror real skeleton');
+    const visibleMeshes=[];arms.userData.filmRedModel.traverse(n=>{if(n.isMesh&&n.visible)visibleMeshes.push(n);});
+    assert.ok(visibleMeshes.some(n=>n.isSkinnedMesh),'first-person arms should be skinned 3D meshes');
+    assert.ok(visibleMeshes.every(n=>n.isSkinnedMesh),'first-person view must not use flat sprite overlays');
     for(const castKind of ['basic','combo','axe','rocket','giant','haki']){
-      for(let i=0;i<60;i++){state.time+=1/60;context.updatePlayer3D(root,1/60,true,{hurtAnim:0,attackAnim:1-i/60,castTime:0,castKind});}
+      for(let i=0;i<60;i++){state.time+=1/60;context.updatePlayer3D(root,1/60,true,{hurtAnim:0,attackAnim:1-i/60,castTime:0,castKind});context.updateFirstPersonArms({castKind},true);}
     }
+    const largestPoseGap=Math.max(...arms.userData.mirrorPairs.flatMap(([a,b])=>a.quaternion.toArray().map((v,j)=>Math.abs(v-b.quaternion.toArray()[j]))));
+    assert.ok(largestPoseGap<1e-6,`mirrored bone rotations should match: ${largestPoseGap}`);
   }else{
     context.setupTroopRig(model,'test');
     for(let i=0;i<360;i++){state.time+=1/60;context.updateTroopRig(model,1/60,true,(i%60)/60,'bossCircle',0);}
@@ -70,14 +80,21 @@ assert.ok(boss.phase2&&boss.ultimate);
 console.log('PASS 60-second CPU boss simulation',{peakEffects,peakHazards,hits});
 
 const plants=context.makeVegetation(),clouds=context.makeCloudBank(),gulls=context.makeGullFlock(),rain=context.makeRainField(190);
-assert.equal(plants.length,3);assert.ok(plants.every(mesh=>mesh.isInstancedMesh));assert.equal(clouds.count,24);assert.equal(gulls.length,5);
+assert.equal(plants.length,4);assert.ok(plants.every(mesh=>mesh.isInstancedMesh));assert.equal(clouds.count,24);assert.equal(gulls.length,5);
+const trunkMatrix=new THREE.Matrix4(),canopyMatrix=new THREE.Matrix4(),trunkScale=new THREE.Vector3(),canopyScale=new THREE.Vector3();
+for(let i=0;i<38;i++){
+  plants[0].getMatrixAt(i,trunkMatrix);plants[1].getMatrixAt(i*2,canopyMatrix);
+  trunkMatrix.decompose(new THREE.Vector3(),new THREE.Quaternion(),trunkScale);
+  canopyMatrix.decompose(new THREE.Vector3(),new THREE.Quaternion(),canopyScale);
+  assert.ok(canopyScale.x>trunkScale.y*.8,'tree canopy should scale with trunk height');
+}
 for(const side of [-1,1]){
   const cannon=context.makeCannon(side*36,0,side),forward=new THREE.Vector3(0,0,1).applyQuaternion(cannon.quaternion);
   assert.ok(forward.x*side<-.99);assert.ok(cannon.children.some(node=>node.isGroup));
 }
 const waves=[new THREE.Mesh(new THREE.PlaneGeometry(8,1),new THREE.MeshBasicMaterial({opacity:.2}))];waves[0].userData.wavePhase=0;waves[0].userData.waveBaseX=0;
 const lights={hemi:new THREE.HemisphereLight(0xffffff,0x333333,2),sun:new THREE.DirectionalLight(0xffffff,3),rim:new THREE.DirectionalLight(0xffffff,1),fortressLamp:{intensity:1}};
-const env={seaMap:{offset:new THREE.Vector2()},waterWaves:waves,foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
+const env={sea:new THREE.Mesh(new THREE.PlaneGeometry(180,210,8,8),new THREE.MeshStandardMaterial()),waterWaves:waves,foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
   surfMesh:new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float32Array(112*3),3)),new THREE.PointsMaterial()),
   weatherDrops:rain,cloudMesh:clouds,gulls,...lights,weatherClock:0};
 context.scene.background=new THREE.Color(0x9fd5e4);context.scene.fog=new THREE.Fog(0x9fd5e4,48,125);context.world.userData.environment=env;
@@ -87,4 +104,5 @@ for(let i=0;i<94*30;i++){
   sawRain ||= rain.mesh.visible;sawClear ||= !rain.mesh.visible;
 }
 assert.ok(sawRain&&sawClear);assert.ok(Array.from(env.surfMesh.geometry.attributes.position.array).every(Number.isFinite));
+assert.ok(env.sea.geometry.attributes.position.getZ(0)!==0,'ocean mesh should displace');
 console.log('PASS weather cycle, rain, seagulls, and instanced vegetation');
