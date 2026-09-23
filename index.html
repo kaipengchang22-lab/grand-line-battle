@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>伟大航路：本部决战 · 第一人称3D</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./style.css?v=55">
+  <link rel="stylesheet" href="./style.css?v=61">
 </head>
 <body>
   <canvas id="gameCanvas"></canvas>
@@ -23,7 +23,7 @@
       <div class="start-features">
         <span>◉ 左摇杆只负责移动</span><span>⌖ 右侧滑动瞄准</span><span>✦ 攻击与技能</span>
       </div>
-      <small>V60 · 修正手臂骨骼、立体浪花与技能打击特效</small>
+      <small>V61 · 三名伙伴支援、连贯骨骼动作与拍岸浪花</small>
     </div>
   </section>
 
@@ -88,6 +88,7 @@
       <button class="skill" data-action="s1" data-cd="s1"><span class="cd"></span><b>连打</b><small>多段</small></button>
       <button class="dodge" data-action="dodge" data-cd="dodge"><span class="cd"></span><b>闪避</b></button>
       <button class="attack" data-action="attack" data-cd="attack"><span class="cd"></span><b>攻击</b><i>拳</i></button>
+      <button class="skill summon-btn" data-action="summon" data-cd="summon" aria-label="召唤甚平、山治、乔巴，持续12秒，28秒冷却"><span class="cd"></span><b>伙伴</b><small>12秒支援</small></button>
     </div>
   </main>
 
@@ -114,6 +115,6 @@
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js" } }
   </script>
-  <script type="module" src="./game.js?v=60"></script>
+  <script type="module" src="./game.js?v=61"></script>
 </body>
 </html>

@@ -52,7 +52,7 @@
 
 ## 当前版本重点
 
-- 页面版本：V60
+- 页面版本：V61
 - 默认主角：Film Red 路飞
 - 默认模型路径：`assets/models/film-red-luffy/luffy022_body_model.fbx`
 - Film Red 配套贴图：同目录下 `luffy022_*.png`
@@ -78,7 +78,15 @@ python -m http.server 8080
 ## 迁移注意
 
 - 保持现有目录结构，尤其不要移动 `assets/models/film-red-luffy/`。
-- `index.html` 当前加载 `style.css?v=55` 与 `game.js?v=60`。
+- `index.html` 当前加载 `style.css?v=61` 与 `game.js?v=61`。
 - Three.js、GLTFLoader 与 FBXLoader 当前通过 jsDelivr CDN 加载，运行时需要网络。
 - 第一人称会隐藏第三人称世界角色，避免出现重复身体。
-- 后续以本 ZIP 为新项目源码基线；旧聊天和 GitHub `main` 只作参考。
+- 后续以 GitHub `main` 为线上发布基线。
+
+## V61 伙伴和海岸更新
+
+- 第三人称路飞恢复原始 FBX 骨骼绑定，屏蔽异常的游离手臂附件；赤犬攻击骨骼在绑定姿态附近限幅。
+- 攻击特效使用有体积的弯曲火焰、冲击环及碎片，不再以锥体作为拳击拖尾。
+- 冰原前后开放海岸加入有尖瓣轮廓的三维推进破浪，两侧石墙阻挡水流。
+- 素材包中选用甚平（防护、范围水击）、山治（高速连击、突进、范围踢击）、乔巴（远程、治疗、范围控制）三种蒙皮模型，各有三种技能和独立骨骼姿势；同时召唤持续 12 秒，冷却 28 秒。
+- 修复原 ZIP 中损坏的伪路飞 FBX；发布时以完整模型替换远端文件。

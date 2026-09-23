@@ -117,3 +117,5 @@ h1 span{color:var(--orange)}
 .actions .ultimate-btn{background:linear-gradient(145deg,#f9bd40,#9b441f)!important;border-color:#ffe5a0!important}
 .actions .ultimate-btn:not(.cooling){box-shadow:0 0 14px #ffc74d88}
 .actions small{font-size:8px}
+.actions button.summon-btn{position:absolute;left:-69px;top:2px;width:60px;height:60px;background:linear-gradient(145deg,#318a78,#183f64);border-color:#92ebdb}
+.actions button.summon-btn:not(.cooling){box-shadow:0 0 15px #76eed055,0 5px 0 #0a2633}
