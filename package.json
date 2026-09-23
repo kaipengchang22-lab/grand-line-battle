@@ -1,0 +1,11 @@
+{
+  "name": "grand-line-battle",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tools/test-character-regression.mjs"
+  },
+  "devDependencies": {
+    "three": "0.166.1"
+  }
+}
