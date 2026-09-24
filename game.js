@@ -283,13 +283,17 @@ const audio = {
   }
 };
 
-// A thin, irregular sheet of moving water. The foam is drawn from animated
-// noise inside the wave itself, so there is no white rectangular decal.
+const coastalMap=new THREE.TextureLoader().load("./assets/textures/coastal-sea-v62.webp");
+coastalMap.colorSpace=THREE.SRGBColorSpace;
+coastalMap.wrapS=coastalMap.wrapT=THREE.RepeatWrapping;
+coastalMap.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
+// Real water detail is sampled within a thin, irregular moving sheet. Noise
+// breaks up the foam silhouette so the image never becomes a white rectangle.
 function makeSurfPatch(width){
   const geometry=new THREE.PlaneGeometry(width,4.2,18,8);
   geometry.rotateX(-Math.PI/2);
   const material=new THREE.ShaderMaterial({
-    uniforms:{uTime:{value:0},uArrival:{value:0},uOpacity:{value:0}},
+    uniforms:{uTime:{value:0},uArrival:{value:0},uOpacity:{value:0},uWater:{value:coastalMap}},
     vertexShader:`
       uniform float uTime,uArrival;
       varying vec2 vUv;
@@ -304,6 +308,7 @@ function makeSurfPatch(width){
     fragmentShader:`
       precision highp float;
       uniform float uTime,uOpacity;
+      uniform sampler2D uWater;
       varying vec2 vUv;
       float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
       float noise(vec2 p){
@@ -320,7 +325,8 @@ function makeSurfPatch(width){
         float sides=smoothstep(.0,.11,vUv.x)*(1.-smoothstep(.89,1.,vUv.x));
         float crest=exp(-pow((vUv.y-.67+scallop)*5.8,2.));
         float lace=crest*smoothstep(.37,.72,n);
-        vec3 sea=mix(vec3(.045,.29,.41),vec3(.20,.62,.67),.35+n*.55);
+        vec3 realWater=texture2D(uWater,vec2(vUv.x*1.9+uTime*.012,vUv.y*.85-uTime*.018)).rgb;
+        vec3 sea=mix(vec3(.055,.33,.43),realWater,.72);
         vec3 color=mix(sea,vec3(.69,.88,.85),lace*.82);
         float alpha=uOpacity*longitudinal*sides*(.38+.18*n+.33*lace);
         if(alpha<.012)discard;
@@ -344,16 +350,8 @@ function buildWorld(){
   const fortressLamp=new THREE.PointLight(0xffb04d,1.8,38,2);fortressLamp.position.set(0,10,-61);scene.add(fortressLamp);
 
   const seaGeometry=new THREE.PlaneGeometry(180,210,54,64);
-  const seaColors=[],seaPosition=seaGeometry.attributes.position;
-  const deep=new THREE.Color(0x155271),shallow=new THREE.Color(0x4caab7);
-  for(let i=0;i<seaPosition.count;i++){
-    const x=Math.abs(seaPosition.getX(i)),z=seaPosition.getY(i)-12;
-    const distance=Math.min(Math.abs(x-42),Math.abs(Math.abs(z+5)-63));
-    const color=deep.clone().lerp(shallow,clamp(1-distance/22,0,1)*.75);
-    seaColors.push(color.r,color.g,color.b);
-  }
-  seaGeometry.setAttribute("color",new THREE.Float32BufferAttribute(seaColors,3));
-  const seaMaterial=new THREE.MeshPhysicalMaterial({color:0xffffff,vertexColors:true,roughness:.31,metalness:.08,clearcoat:.6,clearcoatRoughness:.25,side:THREE.DoubleSide});
+  coastalMap.repeat.set(6,7);
+  const seaMaterial=new THREE.MeshPhysicalMaterial({color:0xffffff,map:coastalMap,roughness:.31,metalness:.08,clearcoat:.6,clearcoatRoughness:.25,side:THREE.DoubleSide});
   const sea=add(world,seaGeometry,seaMaterial,0,-.42,-12,-Math.PI/2);
   sea.receiveShadow=false;
   const iceMaterial=standard(C.ice,.76,.025);iceMaterial.map=makeIceTexture();
@@ -625,6 +623,7 @@ function updateEnvironment(dt){
     ocean.setZ(i,Math.sin(x*.115+z*.035+t*1.25)*.18+Math.sin(z*.17-x*.046-t*1.72)*.1);
   }
   ocean.needsUpdate=true;
+  if(env.sea.material.map)env.sea.material.map.offset.set(state.time*.003,-state.time*.002);
   env.normalTimer=(env.normalTimer||0)+dt;
   if(env.normalTimer>.12){env.sea.geometry.computeVertexNormals();env.normalTimer=0;}
   env.shoreBreakers?.forEach((breaker,i)=>{

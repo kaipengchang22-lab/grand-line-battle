@@ -19,7 +19,8 @@ const state={time:0,effects:[],hazards:[],enemies:[],player:{pos:new THREE.Vecto
 const scene=new THREE.Scene();
 const arms=new THREE.Group();arms.userData.fallback=new THREE.Group();arms.add(arms.userData.fallback);
 let hits=0;
-const context=vm.createContext({THREE,FBXLoader,cloneSkeleton,arms,console,state,scene,WORLD_EFFECT_LIMIT:90,
+const coastalMap=new THREE.Texture();
+const context=vm.createContext({THREE,FBXLoader,cloneSkeleton,arms,console,state,scene,coastalMap,WORLD_EFFECT_LIMIT:90,
   PLAYER_3D_ASSET:{orientation:0},SKY_CLEAR:new THREE.Color(0x9fd5e4),SKY_STORM:new THREE.Color(0x526779),
   C:{red:0xff3333,orange:0xff9933},
   clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),dist2D:(a,b)=>Math.hypot(a.x-b.x,a.z-b.z),
@@ -114,6 +115,8 @@ const frontSurf=context.makeSurfPatch(12),wallSurf=context.makeSurfPatch(16);
 frontSurf.userData={edge:'open',side:1,phase:.2};wallSurf.userData={edge:'wall',side:-1,phase:.5};
 env.shoreBreakers=[frontSurf,wallSurf];
 assert.ok(frontSurf.material.isShaderMaterial&&frontSurf.material.fragmentShader.includes('scallop'));
+assert.equal(frontSurf.material.uniforms.uWater.value,coastalMap,'surf must sample the real water texture');
+assert.ok(readFileSync(new URL('../assets/textures/coastal-sea-v62.webp',import.meta.url)).byteLength<550000,'water texture should be mobile-sized');
 assert.ok(!source.includes('new THREE.PlaneGeometry(78,1.25'),'solid white foam strips must be removed');
 context.scene.background=new THREE.Color(0x9fd5e4);context.scene.fog=new THREE.Fog(0x9fd5e4,48,125);context.world.userData.environment=env;
 let sawRain=false,sawClear=false;
