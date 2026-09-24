@@ -4,6 +4,8 @@ import vm from 'node:vm';
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { Tree } from '../assets/trees/ez-tree/tree.js';
+import { EZ_TREE_PRESETS } from '../assets/trees/ez-tree/presets.js';
 
 // CPU regression only: does not assert visual quality, GPU memory, or Android FPS.
 globalThis.document={createElementNS:()=>({addEventListener(){},removeEventListener(){},set src(value){}})};
@@ -20,7 +22,8 @@ const scene=new THREE.Scene();
 const arms=new THREE.Group();arms.userData.fallback=new THREE.Group();arms.add(arms.userData.fallback);
 let hits=0;
 const coastalMap=new THREE.Texture();
-const context=vm.createContext({THREE,FBXLoader,cloneSkeleton,arms,console,state,scene,coastalMap,WORLD_EFFECT_LIMIT:90,
+const renderer={capabilities:{getMaxAnisotropy:()=>8}};
+const context=vm.createContext({THREE,FBXLoader,cloneSkeleton,Tree,EZ_TREE_PRESETS,renderer,arms,console,state,scene,coastalMap,WORLD_EFFECT_LIMIT:90,
   PLAYER_3D_ASSET:{orientation:0},SKY_CLEAR:new THREE.Color(0x9fd5e4),SKY_STORM:new THREE.Color(0x526779),
   C:{red:0xff3333,orange:0xff9933},
   clamp:(v,a,b)=>Math.max(a,Math.min(b,v)),dist2D:(a,b)=>Math.hypot(a.x-b.x,a.z-b.z),
@@ -95,22 +98,36 @@ assert.ok(boss.phase2&&boss.ultimate);
 console.log('PASS 60-second CPU boss simulation',{peakEffects,peakHazards,hits});
 
 const plants=context.makeVegetation(),clouds=context.makeCloudBank(),gulls=context.makeGullFlock(),rain=context.makeRainField(190);
-assert.equal(plants.length,4);assert.ok(plants.every(mesh=>mesh.isInstancedMesh));assert.equal(clouds.count,24);assert.equal(gulls.length,5);
-const trunkMatrix=new THREE.Matrix4(),canopyMatrix=new THREE.Matrix4(),trunkScale=new THREE.Vector3(),canopyScale=new THREE.Vector3();
-for(let i=0;i<38;i++){
-  plants[0].getMatrixAt(i,trunkMatrix);plants[1].getMatrixAt(i*2,canopyMatrix);
-  trunkMatrix.decompose(new THREE.Vector3(),new THREE.Quaternion(),trunkScale);
-  canopyMatrix.decompose(new THREE.Vector3(),new THREE.Quaternion(),canopyScale);
-  assert.ok(canopyScale.x>trunkScale.y*.8,'tree canopy should scale with trunk height');
+assert.equal(plants.length,6);assert.ok(plants.every(mesh=>mesh.isInstancedMesh));assert.equal(clouds.count,24);assert.equal(gulls.length,5);
+assert.deepEqual([...new Set(plants.map(mesh=>mesh.userData.treeSpecies))].sort(),['ash','oak','pine']);
+assert.equal(plants.reduce((sum,mesh)=>mesh.userData.part==='branches'?sum+mesh.count:sum,0),38,'all 38 trees must have branch instances');
+for(const mesh of plants){
+  assert.ok(mesh.geometry.getAttribute('position').count>6000,'tree must contain detailed 3D geometry');
+  assert.ok(mesh.geometry.index.count>18000,'tree geometry must contain real branched surfaces');
+  assert.ok(mesh.geometry.boundingSphere.radius>5,'tree dimensions must be measured in world space before scaling');
+  assert.ok(mesh.material.isMeshStandardMaterial&&mesh.material.map,'trees must use textured PBR materials');
+  assert.ok(mesh.material.map.colorSpace===THREE.SRGBColorSpace,'tree color textures must use sRGB');
+  if(mesh.userData.part==='branches'){
+    assert.ok(mesh.geometry.getAttribute('uv2'),'bark ambient occlusion requires secondary UVs');
+    assert.ok(mesh.material.normalMap&&mesh.material.aoMap&&mesh.material.roughnessMap,'bark must use full PBR texture maps');
+  }else{
+    assert.ok(mesh.material.alphaTest>0,'leaf atlas must keep cutout edges');
+    assert.ok(mesh.material.onBeforeCompile.toString().includes('uWindStrength'),'leaves need a wind sway shader');
+  }
+  for(let i=0;i<mesh.count;i++){
+    const matrix=new THREE.Matrix4();mesh.getMatrixAt(i,matrix);
+    assert.ok(matrix.elements.every(Number.isFinite),'tree instance transform must be finite');
+  }
 }
+assert.equal(plants.windTrees.length,3,'wind animation updates each generated species');
 for(const side of [-1,1]){
   const cannon=context.makeCannon(side*36,0,side),forward=new THREE.Vector3(0,0,1).applyQuaternion(cannon.quaternion);
   assert.ok(forward.x*side<-.99);assert.ok(cannon.children.some(node=>node.isGroup));
 }
 const lights={hemi:new THREE.HemisphereLight(0xffffff,0x333333,2),sun:new THREE.DirectionalLight(0xffffff,3),rim:new THREE.DirectionalLight(0xffffff,1),fortressLamp:{intensity:1}};
-const env={sea:new THREE.Mesh(new THREE.PlaneGeometry(180,210,8,8),new THREE.MeshStandardMaterial()),foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
+const env={sea:new THREE.Mesh(new THREE.PlaneGeometry(180,210,8,8),new THREE.MeshStandardMaterial({map:coastalMap})),foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
   sprayDummy:new THREE.Object3D(),surfMesh:new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.095,1),new THREE.MeshStandardMaterial(),112),
-  weatherDrops:rain,cloudMesh:clouds,gulls,...lights,weatherClock:0};
+  weatherDrops:rain,cloudMesh:clouds,gulls,windTrees:plants.windTrees,...lights,weatherClock:0};
 const frontSurf=context.makeSurfPatch(12),wallSurf=context.makeSurfPatch(16);
 frontSurf.userData={edge:'open',side:1,phase:.2};wallSurf.userData={edge:'wall',side:-1,phase:.5};
 env.shoreBreakers=[frontSurf,wallSurf];
@@ -120,11 +137,13 @@ assert.ok(readFileSync(new URL('../assets/textures/coastal-sea-v62.webp',import.
 assert.ok(!source.includes('new THREE.PlaneGeometry(78,1.25'),'solid white foam strips must be removed');
 context.scene.background=new THREE.Color(0x9fd5e4);context.scene.fog=new THREE.Fog(0x9fd5e4,48,125);context.world.userData.environment=env;
 let sawRain=false,sawClear=false;
+const seaOffsetBefore=coastalMap.offset.clone();
 for(let i=0;i<94*30;i++){
   state.time+=1/30;context.updateEnvironment(1/30);
   sawRain ||= rain.mesh.visible;sawClear ||= !rain.mesh.visible;
 }
 assert.ok(sawRain&&sawClear);assert.ok(Array.from(env.surfMesh.instanceMatrix.array).every(Number.isFinite));
+assert.ok(coastalMap.offset.distanceTo(seaOffsetBefore)>.05,'the ocean texture must visibly flow during play');
 assert.ok(env.sea.geometry.attributes.position.getZ(0)!==0,'ocean mesh should displace');
 assert.ok(frontSurf.position.z>55&&frontSurf.position.z<62,'open surf washes onto the ice shelf');
 assert.ok(wallSurf.position.x< -45.5&&wallSurf.position.x> -49,'walled surf remains outside the quay');
