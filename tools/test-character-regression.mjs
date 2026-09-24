@@ -33,7 +33,7 @@ for(const name of ['parseCharacterFBX','characterBoneAxes','bindBonePose','turnB
   'rotateTroopToward','disposeWorldEffect','pushWorldEffect','addWorldEffect','spawnSkillCharge','flameSculpture','spawnAttackFlare',
   'dtSafe','spawnEnergyColumn','spawnImpactBurst','pulse','spawnCircleHazard','spawnLineHazard',
   'updateHazards','updateEffects','updateBoss','makeRainField','makeCloudBank','makeGullFlock',
-  'makeVegetation','makeCannon','updateEnvironment','installFirstPersonRig','updateFirstPersonArms'])vm.runInContext(fn(name),context);
+  'makeVegetation','makeCannon','makeSurfPatch','updateEnvironment','installFirstPersonRig','updateFirstPersonArms'])vm.runInContext(fn(name),context);
 vm.runInContext(source.slice(source.indexOf('const TROOP_3D_ASSETS='),source.indexOf('// Role-to-asset mapping')),context);
 vm.runInContext(source.slice(source.indexOf('const COMPANION_ROLES='),source.indexOf('function createCompanion(')),context);
 for(const name of ['createCompanion','hurtCompanion','castCompanionSkill','updateCompanions'])vm.runInContext(fn(name),context);
@@ -110,6 +110,11 @@ const lights={hemi:new THREE.HemisphereLight(0xffffff,0x333333,2),sun:new THREE.
 const env={sea:new THREE.Mesh(new THREE.PlaneGeometry(180,210,8,8),new THREE.MeshStandardMaterial()),foam:[],shoreSpray:Array.from({length:112},(_,i)=>({age:i*.03,life:.8,pos:new THREE.Vector3(),vel:new THREE.Vector3(),edge:i%4})),
   sprayDummy:new THREE.Object3D(),surfMesh:new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.095,1),new THREE.MeshStandardMaterial(),112),
   weatherDrops:rain,cloudMesh:clouds,gulls,...lights,weatherClock:0};
+const frontSurf=context.makeSurfPatch(12),wallSurf=context.makeSurfPatch(16);
+frontSurf.userData={edge:'open',side:1,phase:.2};wallSurf.userData={edge:'wall',side:-1,phase:.5};
+env.shoreBreakers=[frontSurf,wallSurf];
+assert.ok(frontSurf.material.isShaderMaterial&&frontSurf.material.fragmentShader.includes('scallop'));
+assert.ok(!source.includes('new THREE.PlaneGeometry(78,1.25'),'solid white foam strips must be removed');
 context.scene.background=new THREE.Color(0x9fd5e4);context.scene.fog=new THREE.Fog(0x9fd5e4,48,125);context.world.userData.environment=env;
 let sawRain=false,sawClear=false;
 for(let i=0;i<94*30;i++){
@@ -118,6 +123,9 @@ for(let i=0;i<94*30;i++){
 }
 assert.ok(sawRain&&sawClear);assert.ok(Array.from(env.surfMesh.instanceMatrix.array).every(Number.isFinite));
 assert.ok(env.sea.geometry.attributes.position.getZ(0)!==0,'ocean mesh should displace');
+assert.ok(frontSurf.position.z>55&&frontSurf.position.z<62,'open surf washes onto the ice shelf');
+assert.ok(wallSurf.position.x< -45.5&&wallSurf.position.x> -49,'walled surf remains outside the quay');
+assert.ok(Number.isFinite(frontSurf.material.uniforms.uOpacity.value));
 console.log('PASS weather cycle, rain, seagulls, and instanced vegetation');
 
 state.companions=[];state.player.hp=100;state.player.maxHp=300;state.player.guardTimer=0;

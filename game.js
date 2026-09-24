@@ -187,7 +187,7 @@ function triggerImpactFlash(strong=false){
 }
 
 const state = {
-  active:false, paused:false, mode:"first", phase:"assault", time:0, capture:0, defense:30,
+  active:false, paused:false, mode:"top", phase:"assault", time:0, capture:0, defense:30,
   waveClock:0, kills:0, combo:0, comboTimer:0, score:0, yaw:0, pitch:-.04,
   player:{pos:new THREE.Vector3(0,1.7,40), hp:300,maxHp:300, stamina:100,haki:30,
     speed:9.2, cooldowns:{attack:0,dodge:0,s1:0,s2:0,s3:0,s4:0,s5:0,ultimate:0,haki:0,summon:0}, dodge:0, invuln:0, guardTimer:0,
@@ -283,6 +283,57 @@ const audio = {
   }
 };
 
+// A thin, irregular sheet of moving water. The foam is drawn from animated
+// noise inside the wave itself, so there is no white rectangular decal.
+function makeSurfPatch(width){
+  const geometry=new THREE.PlaneGeometry(width,4.2,18,8);
+  geometry.rotateX(-Math.PI/2);
+  const material=new THREE.ShaderMaterial({
+    uniforms:{uTime:{value:0},uArrival:{value:0},uOpacity:{value:0}},
+    vertexShader:`
+      uniform float uTime,uArrival;
+      varying vec2 vUv;
+      void main(){
+        vUv=uv;
+        vec3 p=position;
+        float crest=exp(-pow((uv.y-.65)*4.8,2.0));
+        float ripple=sin(uv.x*34.0+uTime*2.1)*.06+sin(uv.x*67.0-uTime*1.3)*.035;
+        p.y=.045+uArrival*crest*(.23+ripple);
+        gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);
+      }`,
+    fragmentShader:`
+      precision highp float;
+      uniform float uTime,uOpacity;
+      varying vec2 vUv;
+      float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+      float noise(vec2 p){
+        vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+        return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),
+                   mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);
+      }
+      void main(){
+        float n=.55*noise(vUv*vec2(48.,12.)+vec2(uTime*.13,-uTime*.27))+
+                .3*noise(vUv*vec2(96.,27.)-vec2(uTime*.42,uTime*.19))+
+                .15*noise(vUv*vec2(182.,59.)+uTime*.09);
+        float scallop=.035*sin(vUv.x*39.+uTime*.75)+.022*sin(vUv.x*87.-uTime*.5);
+        float longitudinal=smoothstep(.03,.16,vUv.y+scallop)*(1.-smoothstep(.81,.99,vUv.y+scallop));
+        float sides=smoothstep(.0,.11,vUv.x)*(1.-smoothstep(.89,1.,vUv.x));
+        float crest=exp(-pow((vUv.y-.67+scallop)*5.8,2.));
+        float lace=crest*smoothstep(.37,.72,n);
+        vec3 sea=mix(vec3(.045,.29,.41),vec3(.20,.62,.67),.35+n*.55);
+        vec3 color=mix(sea,vec3(.69,.88,.85),lace*.82);
+        float alpha=uOpacity*longitudinal*sides*(.38+.18*n+.33*lace);
+        if(alpha<.012)discard;
+        gl_FragColor=vec4(color,alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    transparent:true,depthWrite:false,side:THREE.DoubleSide
+  });
+  const mesh=new THREE.Mesh(geometry,material);
+  mesh.frustumCulled=false;mesh.renderOrder=2;
+  return mesh;
+}
 function buildWorld(){
   const hemi = new THREE.HemisphereLight(0xeafcff,0x31526d,2.25); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff4d4,3.0);
@@ -330,33 +381,20 @@ function buildWorld(){
     add(world,new THREE.BoxGeometry(.42,.18,124),toon(0x9bbbc1),side*40.45,1.22,-5);
     for(let i=0;i<10;i++)add(world,new THREE.CylinderGeometry(.18,.24,.8,8),toon(0x4d6671),side*40.35,.38,51-i*12);
   }
-  const foamMat=new THREE.MeshPhysicalMaterial({color:0x80cfdc,emissive:0x164251,emissiveIntensity:.2,roughness:.4,transparent:true,opacity:.5,depthWrite:false,side:THREE.DoubleSide});
-  const foam=[];
-  foam.push(add(world,new THREE.PlaneGeometry(78,1.25,48,2),foamMat.clone(),0,-.25,58.2,-Math.PI/2));
-  foam.push(add(world,new THREE.PlaneGeometry(78,1.25,48,2),foamMat.clone(),0,-.25,-68.2,-Math.PI/2));
-  foam.push(add(world,new THREE.PlaneGeometry(1.25,116,2,48),foamMat.clone(),-41.8,-.25,-5,-Math.PI/2));
-  foam.push(add(world,new THREE.PlaneGeometry(1.25,116,2,48),foamMat.clone(),41.8,-.25,-5,-Math.PI/2));
-  foam.forEach((f,i)=>{f.userData.wavePhase=i*1.7;f.userData.waveBaseX=f.position.x;f.userData.waveBaseZ=f.position.z;});
   const shoreBreakers=[];
-  const darkSurf=new THREE.Color(0x2e91aa),crestSurf=new THREE.Color(0xb7e8e4);
-  // The two open ends of the ice shelf have actual surf.  The side walls
-  // remain dry: a wave must not pass through the stone quays.
+  // Surf washes onto the two open ice ends. At the walled sides it hits the
+  // outside of the quay, never passing through the stone into the arena.
+  for(const side of [-1,1])for(let i=0;i<7;i++){
+    const breaker=makeSurfPatch(12);
+    breaker.position.set(-36+i*12,.035,side>0?61:-71);
+    breaker.userData={edge:"open",side,phase:i*.11+(side>0?.27:0)};
+    world.add(breaker);shoreBreakers.push(breaker);
+  }
   for(const side of [-1,1])for(let i=0;i<8;i++){
-    const geometry=new THREE.PlaneGeometry(5.2,8.4,8,8),positions=geometry.attributes.position,colors=[];
-    for(let j=0;j<positions.count;j++){
-      const along=positions.getY(j)/4.2,shore=(positions.getX(j)+2.6)/5.2;
-      // Taper both ends of every curling sheet; avoid square billboard edges.
-      positions.setY(j,positions.getY(j)*(.15+.85*Math.pow(Math.max(0,1-along*along),.7)));
-      const color=darkSurf.clone().lerp(crestSurf,Math.pow(side>0?1-shore:shore,2)*.9);
-      colors.push(color.r,color.g,color.b);
-    }
-    positions.needsUpdate=true;
-    geometry.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
-    const breaker=new THREE.Mesh(geometry,new THREE.MeshPhysicalMaterial({vertexColors:true,roughness:.36,metalness:.03,
-      transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide}));
-    breaker.rotation.order="YXZ";breaker.rotation.set(-Math.PI/2,Math.PI/2,0);
-    breaker.position.set(-34+i*9.7,.09,side>0?60.7:-70.7);
-    breaker.userData={side,phase:i*.19+(side>0?.29:0)};breaker.frustumCulled=false;
+    const breaker=makeSurfPatch(16);
+    breaker.rotation.y=Math.PI/2;
+    breaker.position.set(side*48,.035,-57+i*15);
+    breaker.userData={edge:"wall",side,phase:i*.13+(side>0?.18:0)};
     world.add(breaker);shoreBreakers.push(breaker);
   }
   const shoreCount=112,surfMesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(.095,1),
@@ -444,7 +482,7 @@ function buildWorld(){
     const x=(seeded(600+i)*2-1)*38,z=(seeded(720+i)*2-1)*58-4;
     add(world,new THREE.TetrahedronGeometry(.35+seeded(800+i)*.75,0),toon(i%3?0xd8f7fb:0x75c8d8),x,.18,z,0,seeded(910+i)*Math.PI,0);
   }
-  world.userData.environment={sea,foam,shoreBreakers,shoreSpray,surfMesh,sprayDummy,weatherDrops,cloudMesh,gulls,
+  world.userData.environment={sea,shoreBreakers,shoreSpray,surfMesh,sprayDummy,weatherDrops,cloudMesh,gulls,
     hemi,sun,rim,fortressLamp,cannons,weatherClock:0};
 }
 
@@ -589,32 +627,15 @@ function updateEnvironment(dt){
   ocean.needsUpdate=true;
   env.normalTimer=(env.normalTimer||0)+dt;
   if(env.normalTimer>.12){env.sea.geometry.computeVertexNormals();env.normalTimer=0;}
-  env.foam?.forEach((foam,i)=>{
-    const q=state.time*1.7+foam.userData.wavePhase,pulse=Math.max(0,Math.sin(q));
-    foam.material.opacity=.22+pulse*.3;
-    foam.position.x=foam.userData.waveBaseX+(i>1?(i===2?-1:1)*pulse*.4:0);
-    foam.position.z=foam.userData.waveBaseZ+(i<2?(i===0?1:-1)*pulse*.4:0);
-    const verts=foam.geometry.attributes.position;
-    for(let j=0;j<verts.count;j++){
-      const along=i<2?verts.getX(j):verts.getY(j);
-      const cross=i<2?verts.getY(j):verts.getX(j);
-      const crest=Math.max(0,Math.sin(q+along*.23+cross*.5));
-      verts.setZ(j,crest*crest*(.1+.21*pulse));
-    }
-    verts.needsUpdate=true;
-    foam.geometry.computeVertexNormals();
-  });
   env.shoreBreakers?.forEach((breaker,i)=>{
     const travel=(state.time*.31+breaker.userData.phase)%1,arrival=Math.sin(Math.PI*travel);
-    breaker.position.z=breaker.userData.side>0?60.7-5.6*travel:-70.7+5.6*travel;
-    breaker.material.opacity=Math.pow(Math.max(0,arrival),1.2)*.68;
-    const vertices=breaker.geometry.attributes.position;
-    for(let j=0;j<vertices.count;j++){
-      const x=vertices.getX(j),z=vertices.getY(j);
-      vertices.setZ(j,Math.max(0,Math.sin(z*.85+travel*5+i*.47))*.16*arrival+Math.max(0,1-Math.abs(x)/2.2)*.08);
-    }
-    vertices.needsUpdate=true;
-    if(i%3===0)breaker.geometry.computeVertexNormals();
+    if(breaker.userData.edge==="open"){
+      breaker.position.z=breaker.userData.side>0?61-5.6*travel:-71+5.6*travel;
+    }else breaker.position.x=breaker.userData.side*(48-2.25*travel);
+    breaker.visible=arrival>.07;
+    breaker.material.uniforms.uTime.value=state.time+i*.41;
+    breaker.material.uniforms.uArrival.value=arrival;
+    breaker.material.uniforms.uOpacity.value=Math.pow(Math.max(0,arrival),1.3)*.9;
   });
   const spray=env.shoreSpray,dummy=env.sprayDummy;
   spray.forEach((particle,i)=>{
@@ -625,8 +646,8 @@ function updateEnvironment(dt){
       particle.age=0;particle.life=.5+seeded(state.time*7+i*19)*.72;
       const edge=particle.edge;
       particle.pos.set((seeded(i*3+Math.floor(state.time*1.8))*2-1)*38,.09,(edge===0?57.2:edge===1?-67.2:(seeded(i*5)*2-1)*118-5));
-      if(edge>1)particle.pos.set(edge===2?-43.8:43.8,.09,(seeded(i*3+Math.floor(state.time*1.8))*2-1)*116-5);
-      particle.vel.set((seeded(i*13+state.time)*2-1)*.65,.9+seeded(i*17)*1.35,(edge===0?.8:edge===1?-.8:0));
+      if(edge>1)particle.pos.set(edge===2?-45.8:45.8,.45,(seeded(i*3+Math.floor(state.time*1.8))*2-1)*116-5);
+      particle.vel.set((seeded(i*13+state.time)*2-1)*.65,(edge>1?1.9:.9)+seeded(i*17)*1.35,(edge===0?.8:edge===1?-.8:0));
     }
     particle.pos.addScaledVector(particle.vel,dt);particle.vel.y-=2.7*dt;
     const q=particle.age/particle.life;
@@ -1772,7 +1793,7 @@ function resetGame(){
 resetGame();
 
 function startGame(){
-  audio.start(); resetGame(); state.active=true; state.mode="first";
+  audio.start(); resetGame(); state.active=true; state.mode="top";ui.viewBtn.textContent="第三视角";
   for(const kind of ["allyJinbe","allySanji","allyChopper"])loadTroopPrototype(kind).catch(error=>console.warn("[Companion] preload failed",kind,error));
   ui.start.classList.add("hidden"); ui.result.classList.add("hidden"); ui.hud.classList.remove("hidden");
   document.body.classList.add("playing");
@@ -2367,6 +2388,13 @@ function updateUI(){
     if(span)span.textContent=v>0?Math.ceil(v):(key==="ultimate"&&p.charge<100?Math.floor(p.charge)+"%":"");
     el.classList.toggle("cooling",v>0||(key==="ultimate"&&p.charge<100));
   });
+  const summonButton=document.querySelector('[data-action="summon"]');
+  if(summonButton){
+    const remaining=Math.max(0,...state.companions.filter(c=>!c.dead).map(c=>c.life));
+    summonButton.classList.toggle("active",remaining>0);
+    const label=summonButton.querySelector("small");
+    if(label)label.textContent=remaining>0?`支援 ${Math.ceil(remaining)}秒`:"12秒支援";
+  }
   drawRadar();
 }
 function drawRadar(){
@@ -2376,6 +2404,7 @@ function drawRadar(){
   const sc=.72,px=w/2,pz=h/2;
   function dot(x,z,color,r){ctx.fillStyle=color;ctx.beginPath();ctx.arc(px+(x-state.player.pos.x)*sc,pz+(z-state.player.pos.z)*sc,r,0,Math.PI*2);ctx.fill();}
   state.enemies.forEach(e=>{if(!e.dead)dot(e.pos.x,e.pos.z,e.type==="boss"?"#ffc34b":"#ff6255",e.type==="boss"?4:2.5);});
+  state.companions.forEach(c=>{if(!c.dead)dot(c.pos.x,c.pos.z,"#72efbf",2.8);});
   dot(state.captureMesh.position.x,state.captureMesh.position.z,"#ffd65b",3);if(state.ally)dot(state.ally.pos.x,state.ally.pos.z,"#4fe0cb",3);
   dot(state.player.pos.x,state.player.pos.z,"#fff",3.5);
   ctx.strokeStyle="#fff";ctx.beginPath();ctx.moveTo(px,pz);ctx.lineTo(px+Math.sin(state.yaw)*9,pz-Math.cos(state.yaw)*9);ctx.stroke();
@@ -2495,7 +2524,7 @@ function bindControls(){
   }));
   ui.startBtn.addEventListener("click",startGame);ui.restartBtn.addEventListener("click",startGame);
   ui.pauseBtn.addEventListener("click",togglePause);
-  ui.viewBtn.addEventListener("click",()=>{state.mode=state.mode==="first"?"top":"first";ui.viewBtn.textContent=state.mode==="first"?"第一视角":"俯视视角";toast(state.mode==="first"?"已切换第一视角":"已切换俯视视角",700);});
+  ui.viewBtn.addEventListener("click",()=>{state.mode=state.mode==="first"?"top":"first";ui.viewBtn.textContent=state.mode==="first"?"第一视角":"第三视角";toast(state.mode==="first"?"已切换第一视角":"已切换第三视角",700);});
 }
 function togglePause(){if(!state.active)return;state.paused=!state.paused;ui.pauseBtn.textContent=state.paused?"继续":"暂停";toast(state.paused?"战斗暂停":"继续战斗",700);if(state.paused)document.exitPointerLock?.();}
 

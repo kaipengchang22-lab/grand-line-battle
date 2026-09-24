@@ -119,3 +119,5 @@ h1 span{color:var(--orange)}
 .actions small{font-size:8px}
 .actions button.summon-btn{position:absolute;left:-69px;top:2px;width:60px;height:60px;background:linear-gradient(145deg,#318a78,#183f64);border-color:#92ebdb}
 .actions button.summon-btn:not(.cooling){box-shadow:0 0 15px #76eed055,0 5px 0 #0a2633}
+.actions button.summon-btn.active{border-color:#a3ffdc;box-shadow:0 0 20px #76eed099,0 5px 0 #0a2633}
+.actions button.summon-btn.active b,.actions button.summon-btn.active small{opacity:1}
