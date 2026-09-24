@@ -1,5 +1,11 @@
 # 《伟大航路·本部决战》V60 源码迁移说明
 
+## V63 伙伴加载恢复与发布校验（2026-09-24）
+
+- 角色 FBX 请求失败后清除失败缓存，网络恢复时允许再次加载与召唤。
+- 三名伙伴均加载失败时返还 35 体力并清除召唤冷却；部分成功时准确显示已到场伙伴。
+- GitHub Pages 部署需先在完整仓库中通过 `npm test`，防止缺失素材或回归失败的提交被发布。
+
 ## V60 FBX 骨骼坐标与三维浪花修复（2026-09-23）
 
 - 修复 FBX 模型网格 Z-up、骨骼 Y-up 的不一致：转正 Bip001 骨骼并重新计算所有蒙皮网格的逆绑定矩阵，使路飞、赤犬和其他兵种的肩膀枢轴与可见网格重合。
@@ -52,7 +58,7 @@
 
 ## 当前版本重点
 
-- 页面版本：V62
+- 页面版本：V63
 - 默认主角：Film Red 路飞
 - 默认模型路径：`assets/models/film-red-luffy/luffy022_body_model.fbx`
 - Film Red 配套贴图：同目录下 `luffy022_*.png`
@@ -78,7 +84,7 @@ python -m http.server 8080
 ## 迁移注意
 
 - 保持现有目录结构，尤其不要移动 `assets/models/film-red-luffy/`。
-- `index.html` 当前加载 `style.css?v=62` 与 `game.js?v=62`。
+- `index.html` 当前加载 `style.css?v=63` 与 `game.js?v=63`。
 - Three.js、GLTFLoader 与 FBXLoader 当前通过 jsDelivr CDN 加载，运行时需要网络。
 - 第一人称会隐藏第三人称世界角色，避免出现重复身体。
 - 后续以 GitHub `main` 为线上发布基线。

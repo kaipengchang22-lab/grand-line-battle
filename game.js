@@ -1209,7 +1209,7 @@ function troopTexture(url){
 function loadTroopPrototype(type){
   const asset=TROOP_3D_ASSETS[type];if(!asset)return Promise.resolve(null);
   if(!troopModelPromises.has(type)){
-    troopModelPromises.set(type,new Promise((resolve,reject)=>{
+    const request=new Promise((resolve,reject)=>{
       loadCharacterFBX(asset.url,model=>{
         let meshes=0,skinned=0;const defaultMap=troopTexture(asset.diffuse);
         model.traverse(node=>{
@@ -1229,7 +1229,10 @@ function loadTroopPrototype(type){
         console.info("[Troop3D] prototype loaded",{type,label:asset.label,meshes,skinned,animations:(model.animations||[]).map(a=>a.name)});
         resolve(model);
       },reject);
-    }));
+    });
+    troopModelPromises.set(type,request);
+    // A failed network request must not poison this role for the entire session.
+    request.catch(()=>{if(troopModelPromises.get(type)===request)troopModelPromises.delete(type);});
   }
   return troopModelPromises.get(type);
 }
@@ -1398,12 +1401,18 @@ async function summonCompanions(){
   const roles=Object.keys(COMPANION_ROLES);
   const result=await Promise.allSettled(roles.map(kind=>loadTroopPrototype(kind)));
   if(token!==state.summonToken||!state.active)return;
-  let count=0;
+  const summoned=[];
   result.forEach((entry,i)=>{
     if(entry.status!=="fulfilled")return console.warn("[Companion] model unavailable",roles[i],entry.reason);
-    try{createCompanion(roles[i],entry.value);count++;}catch(error){console.warn("[Companion] invalid model",roles[i],error);}
+    try{createCompanion(roles[i],entry.value);summoned.push(COMPANION_ROLES[roles[i]].name);}catch(error){console.warn("[Companion] invalid model",roles[i],error);}
   });
-  toast(count?`甚平、山治、乔巴支援 12 秒（${count}/3）`:"伙伴模型加载失败，请检查网络",1600);
+  if(!summoned.length){
+    p.stamina=Math.min(100,p.stamina+35);
+    p.cooldowns.summon=0;
+    toast("伙伴模型加载失败，已返还体力，可重试召唤",1800);
+    return;
+  }
+  toast(`${summoned.join("、")}支援 12 秒（${summoned.length}/3）`,1600);
 }
 
 function clearActors(){

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tools/test-character-regression.mjs"
+    "test": "node tools/test-asset-retry.mjs && node tools/test-character-regression.mjs"
   },
   "devDependencies": {
     "three": "0.166.1"
