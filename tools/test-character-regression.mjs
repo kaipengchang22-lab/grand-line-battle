@@ -9,7 +9,8 @@ import { EZ_TREE_PRESETS } from '../assets/trees/ez-tree/presets.js';
 
 // CPU regression only: does not assert visual quality, GPU memory, or Android FPS.
 globalThis.document={createElementNS:()=>({addEventListener(){},removeEventListener(){},set src(value){}})};
-const source=readFileSync(new URL('../game.js',import.meta.url),'utf8');
+const source=readFileSync(new URL('../game.js',import.meta.url),'utf8')+
+  readFileSync(new URL('../game-core-2.js',import.meta.url),'utf8');
 function fn(name){
   const start=source.indexOf(`function ${name}(`);
   assert.ok(start>=0,name);
@@ -120,6 +121,10 @@ for(const mesh of plants){
   }
 }
 assert.equal(plants.windTrees.length,3,'wind animation updates each generated species');
+for(const file of ['ash-leaves.webp','oak-leaves.webp','pine-leaves.webp','oak-bark.webp','pine-bark.webp']){
+  assert.ok(readFileSync(new URL('../assets/trees/textures/'+file,import.meta.url)).byteLength<80000,
+    'compressed tree textures must stay within the mobile asset budget: '+file);
+}
 for(const side of [-1,1]){
   const cannon=context.makeCannon(side*36,0,side),forward=new THREE.Vector3(0,0,1).applyQuaternion(cannon.quaternion);
   assert.ok(forward.x*side<-.99);assert.ok(cannon.children.some(node=>node.isGroup));

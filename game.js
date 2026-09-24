@@ -1,9 +1,4 @@
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js";
-import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/loaders/GLTFLoader.js";
-import { FBXLoader } from "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/loaders/FBXLoader.js";
-import { clone as cloneSkeleton } from "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/utils/SkeletonUtils.js";
-import { Tree } from "./assets/trees/ez-tree/tree.js";
-import { EZ_TREE_PRESETS } from "./assets/trees/ez-tree/presets.js";
+const {THREE,GLTFLoader,FBXLoader,cloneSkeleton,Tree,EZ_TREE_PRESETS}=window.__GRAND_LINE_GAME_DEPS__;
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("gameCanvas");
@@ -529,12 +524,12 @@ function makeVegetation(){
     return texture;
   };
   const bark={
-    oak:new THREE.MeshStandardMaterial({map:loadTexture("oak_color_1k.jpg",true),aoMap:loadTexture("oak_ao_1k.jpg"),
+    oak:new THREE.MeshStandardMaterial({map:loadTexture("oak-bark.webp",true),aoMap:loadTexture("oak_ao_1k.jpg"),
       normalMap:loadTexture("oak_normal_1k.jpg"),roughnessMap:loadTexture("oak_roughness_1k.jpg"),roughness:.94,normalScale:new THREE.Vector2(.75,.75)}),
-    pine:new THREE.MeshStandardMaterial({map:loadTexture("pine_color_1k.jpg",true),aoMap:loadTexture("pine_ao_1k.jpg"),
+    pine:new THREE.MeshStandardMaterial({map:loadTexture("pine-bark.webp",true),aoMap:loadTexture("pine_ao_1k.jpg"),
       normalMap:loadTexture("pine_normal_1k.jpg"),roughnessMap:loadTexture("pine_roughness_1k.jpg"),roughness:.94,normalScale:new THREE.Vector2(.75,.75)})
   };
-  const oakLeaves=loadTexture("oak_color.png",true),ashLeaves=loadTexture("ash_color.png",true),pineLeaves=loadTexture("pine_color.png",true);
+  const oakLeaves=loadTexture("oak-leaves.webp",true),ashLeaves=loadTexture("ash-leaves.webp",true),pineLeaves=loadTexture("pine-leaves.webp",true);
   const foliage={
     oak:new THREE.MeshStandardMaterial({map:oakLeaves,color:0xd3e5c1,roughness:.9,alphaTest:.46,side:THREE.DoubleSide}),
     ash:new THREE.MeshStandardMaterial({map:ashLeaves,color:0xc9ddbd,roughness:.9,alphaTest:.46,side:THREE.DoubleSide}),
@@ -1397,11 +1392,3 @@ function spawnEnemy(type="sword",x=0,z=0){
   if(assetType&&TROOP_3D_ASSETS[assetType])e.bar.position.y=(TROOP_3D_ASSETS[assetType].height+.38)/model.scale.y;
   state.enemies.push(e);attachTroop3D(e);return e;
 }
-function spawnBoss(){
-  const model=createMarineModel("captain",true);
-  model.userData.fallbackMeshes=[];model.traverse(node=>{if(node.isMesh)model.userData.fallbackMeshes.push(node);});
-  rigActor(model); model.visible=false; model.position.set(0,0,-48); scene.add(model);
-  const e={id:state.nextId++,type:"boss",assetType:"boss",model,pos:model.position,hp:720,maxHp:720,speed:2.7,damage:30,
-    range:3.3,attackCd:2,stun:0,dead:false,phase2:false,ultimate:false,bar:addHealthBar(model,3.2,7.65)};
-  e.bar.visible=false;
-  st

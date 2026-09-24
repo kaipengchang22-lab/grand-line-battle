@@ -14,6 +14,7 @@ https://polyhaven.com/a/bark_brown_02
 The pine bark maps come from TextureCan:
 https://www.texturecan.com/details/588/
 
-Both bark texture sources are CC0. Only the 1K maps needed by the game are
-included. Leaf atlases are the compact oak, ash, and pine assets distributed
-with the EZ-Tree package.
+Both bark texture sources are CC0. AO, normal, and roughness maps are kept at
+1K; the bark color maps are converted to 512-pixel WebP. The transparent leaf
+atlases are WebP at 384–512 pixels and remain distributed with the EZ-Tree
+package.
